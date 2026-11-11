@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>自動レイアウト フローチャート作成ツール</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    /* Canvas background pattern */
+    .bg-grid {
+      background-size: 24px 24px;
+      background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+    }
+    .dark .bg-grid {
+      background-image: radial-gradient(circle, #334155 1px, transparent 1px);
+    }
+    /* Smooth transitions */
+    .node-transition {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.05);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 h-screen w-screen overflow-hidden flex flex-col">
+
+  <!-- Header Header Navbar -->
+  <header class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between z-20 shadow-sm flex-shrink-0">
+    <div class="flex items-center space-x-3">
+      <div class="bg-indigo-600 text-white p-2 rounded-lg shadow">
+        <i data-lucide="git-fork" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-lg text-slate-800 leading-tight">フローチャートエディタ</h1>
+        <p class="text-xs text-slate-500">自動整列・スマートレイアウト</p>
+      </div>
+    </div>
+
+    <!-- Actions Right -->
+    <div class="flex items-center space-x-2">
+      <!-- Status Badge -->
+      <span id="saveStatus" class="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 flex items-center gap-1">
+        <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+        自動保存完了
+      </span>
+
+      <div class="h-4 w-[1px] bg-slate-200 mx-1"></div>
+
+      <!-- Zoom Controls -->
+      <div class="flex items-center bg-slate-100 rounded-lg p-1 border border-slate-200">
+        <button id="btnZoomOut" title="縮小" class="p-1.5 hover:bg-white rounded transition text-slate-600">
+          <i data-lucide="zoom-out" class="w-4 h-4"></i>
+        </button>
+        <span id="zoomLevel" class="text-xs font-semibold px-2 text-slate-600">100%</span>
+        <button id="btnZoomIn" title="拡大" class="p-1.5 hover:bg-white rounded transition text-slate-600">
+          <i data-lucide="zoom-in" class="w-4 h-4"></i>
+        </button>
+        <button id="btnResetZoom" title="位置リセット" class="p-1.5 hover:bg-white rounded transition text-slate-600 ml-1 border-l border-slate-200">
+          <i data-lucide="maximize-2" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="h-4 w-[1px] bg-slate-200 mx-1"></div>
+
+      <!-- Data Actions -->
+      <button id="btnResetData" class="px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg transition border border-red-200 flex items-center gap-1.5">
+        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+        リセット
+      </button>
+
+      <button id="btnDownloadPng" class="px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-sm flex items-center gap-1.5">
+        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+        PNG保存
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Work Area -->
+  <main class="flex-1 relative overflow-hidden bg-slate-50 bg-grid cursor-grab active:cursor-grabbing" id="viewport">
+    <!-- Transform Wrapper for Pan & Zoom -->
+    <div id="scene" class="absolute left-0 top-0 origin-0 transition-transform duration-75">
+      <!-- SVG Connectors Layer -->
+      <svg id="svgLayer" class="absolute left-0 top-0 pointer-events-none" style="overflow: visible;">
+        <defs>
+          <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#94a3b8" />
+          </marker>
+        </defs>
+      </svg>
+
+      <!-- HTML Nodes Container Layer -->
+      <div id="nodesContainer" class="absolute left-0 top-0"></div>
+    </div>
+  </main>
+
+  <!-- Edit Node Modal -->
+  <div id="editModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md overflow-hidden transform transition-all scale-95 opacity-0" id="modalCard">
+      <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+        <h3 class="font-bold text-slate-800 flex items-center gap-2">
+          <i data-lucide="edit-3" class="w-4 h-4 text-indigo-600"></i>
+          ノードの編集
+        </h3>
+        <button id="btnModalClose" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-200/50 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <!-- Text Input -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5">テキスト内容</label>
+          <textarea id="editModalText" rows="3" class="w-full text-sm p-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition" placeholder="テキストを入力..."></textarea>
+        </div>
+
+        <!-- Color Selection -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5">テーマカラー</label>
+          <div class="grid grid-cols-6 gap-2" id="colorPicker">
+            <!-- Colors generated dynamically -->
+          </div>
+        </div>
+
+        <!-- Image Input -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5">画像</label>
+          <div class="space-y-2">
+            <div class="flex gap-2">
+              <input type="text" id="editModalImageUrl" placeholder="https://example.com/image.jpg" class="flex-1 text-xs p-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none">
+              <label class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium cursor-pointer border border-slate-200 flex items-center justify-center">
+                <i data-lucide="upload" class="w-3.5 h-3.5 mr-1"></i> 参照
+                <input type="file" id="editModalFileInput" accept="image/*" class="hidden">
+              </label>
+            </div>
+            <!-- Image Preview -->
+            <div id="imagePreviewContainer" class="relative hidden rounded-lg overflow-hidden border border-slate-200 max-h-32 bg-slate-50 flex justify-center items-center">
+              <img id="imagePreview" src="" alt="Preview" class="max-h-32 object-contain">
+              <button id="btnRemoveImage" class="absolute top-2 right-2 bg-slate-900/70 hover:bg-slate-900 text-white p-1 rounded-full text-xs transition">
+                <i data-lucide="trash" class="w-3.5 h-3.5"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-6 py-3.5 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+        <button id="btnModalCancel" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/60 rounded-lg transition">キャンセル</button>
+        <button id="btnModalSave" class="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-sm">保存する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="fixed bottom-6 right-6 bg-slate-800 text-white text-xs px-4 py-3 rounded-xl shadow-lg border border-slate-700 flex items-center space-x-2 translate-y-20 opacity-0 transition-all z-50 pointer-events-none">
+    <i data-lucide="info" class="w-4 h-4 text-indigo-400"></i>
+    <span id="toastMsg">メッセージ</span>
+  </div>
+
+  <script>
+    // --- COLOR PALETTE DEFINITION ---
+    const COLORS = [
+      { id: 'indigo', bg: 'bg-indigo-500', text: 'text-white', border: 'border-indigo-600', hex: '#6366f1' },
+      { id: 'emerald', bg: 'bg-emerald-500', text: 'text-white', border: 'border-emerald-600', hex: '#10b981' },
+      { id: 'sky', bg: 'bg-sky-500', text: 'text-white', border: 'border-sky-600', hex: '#0ea5e9' },
+      { id: 'amber', bg: 'bg-amber-500', text: 'text-white', border: 'border-amber-600', hex: '#f59e0b' },
+      { id: 'rose', bg: 'bg-rose-500', text: 'text-white', border: 'border-rose-600', hex: '#f43f5e' },
+      { id: 'slate', bg: 'bg-slate-700', text: 'text-white', border: 'border-slate-800', hex: '#334155' },
+    ];
+
+    // --- INITIAL TREE DATA ---
+    const defaultData = {
+      id: 'node-root',
+      text: 'スタート (開始)',
+      color: 'indigo',
+      image: '',
+      children: [
+        {
+          id: 'node-1',
+          text: '条件分岐: ユーザー認証完了？',
+          color: 'amber',
+          image: '',
+          children: [
+            {
+              id: 'node-1-1',
+              text: 'はい: ダッシュボードを表示',
+              color: 'emerald',
+              image: '',
+              children: []
+            },
+            {
+              id: 'node-1-2',
+              text: 'いいえ: ログイン画面へ遷移',
+              color: 'rose',
+              image: '',
+              children: []
+            }
+          ]
+        }
+      ]
+    };
+
+    // --- APPLICATION STATE ---
+    let treeData = null;
+    let selectedNodeId = null;
+    let selectedColor = 'indigo';
+    let zoomLevel = 1.0;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartY = 0;
+
+    // LAYOUT METRICS
+    const NODE_WIDTH = 220;
+    const HORIZONTAL_GAP = 60;
+    const VERTICAL_GAP = 90;
+
+    // --- LOCAL STORAGE HELPERS ---
+    const STORAGE_KEY = 'flowchart_auto_layout_data';
+
+    function saveToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(treeData));
+        showSaveStatus(true);
+      } catch (e) {
+        console.error('Save failed:', e);
+      }
+    }
+
+    function loadFromStorage() {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          return JSON.parse(stored);
+        }
+      } catch (e) {
+        console.error('Load failed:', e);
+      }
+      return null;
+    }
+
+    function showSaveStatus(saved) {
+      const status = document.getElementById('saveStatus');
+      if (saved) {
+        status.classList.remove('opacity-50');
+      }
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMsg');
+      toastMsg.textContent = msg;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 3000);
+    }
+
+    // --- AUTO-LAYOUT ENGINE (Tree layout calculation) ---
+    function calculateLayout(node) {
+      // Step 1: Calculate bounding width for each subtree
+      function measure(n) {
+        if (!n.children || n.children.length === 0) {
+          n._subtreeWidth = NODE_WIDTH;
+          return NODE_WIDTH;
+        }
+        let width = 0;
+        n.children.forEach((child, i) => {
+          width += measure(child);
+          if (i < n.children.length - 1) width += HORIZONTAL_GAP;
+        });
+        n._subtreeWidth = Math.max(NODE_WIDTH, width);
+        return n._subtreeWidth;
+      }
+
+      // Step 2: Assign (x, y) coordinates
+      function position(n, x, y) {
+        n._x = x;
+        n._y = y;
+
+        if (!n.children || n.children.length === 0) return;
+
+        let startX = x - n._subtreeWidth / 2;
+        n.children.forEach((child) => {
+          const childX = startX + child._subtreeWidth / 2;
+          position(child, childX, y + VERTICAL_GAP + 80); // 80 is estimated node height
+          startX += child._subtreeWidth + HORIZONTAL_GAP;
+        });
+      }
+
+      measure(node);
+      position(node, 0, 50); // Root starts at center top
+    }
+
+    // --- TREE MANIPULATION HELPERS ---
+    function findNode(node, id) {
+      if (node.id === id) return node;
+      if (node.children) {
+        for (let child of node.children) {
+          const res = findNode(child, id);
+          if (res) return res;
+        }
+      }
+      return null;
+    }
+
+    function deleteNode(parent, id) {
+      if (!parent.children) return false;
+      const index = parent.children.findIndex(c => c.id === id);
+      if (index !== -1) {
+        parent.children.splice(index, 1);
+        return true;
+      }
+      for (let child of parent.children) {
+        if (deleteNode(child, id)) return true;
+      }
+      return false;
+    }
+
+    function generateId() {
+      return 'node-' + Math.random().toString(36).substr(2, 9);
+    }
+
+    // --- RENDER ENGINE ---
+    function render() {
+      // 1. Calculate Positions
+      calculateLayout(treeData);
+
+      const container = document.getElementById('nodesContainer');
+      const svgLayer = document.getElementById('svgLayer');
+
+      // Clear DOM
+      container.innerHTML = '';
+      
+      // Keep defs in SVG
+      const defs = svgLayer.querySelector('defs').outerHTML;
+      svgLayer.innerHTML = defs;
+
+      const nodes = [];
+      const connections = [];
+
+      // Flatten tree to render array
+      function traverse(n, parent) {
+        nodes.push(n);
+        if (parent) {
+          connections.push({ parent, child: n });
+        }
+        if (n.children) {
+          n.children.forEach(c => traverse(c, n));
+        }
+      }
+      traverse(treeData, null);
+
+      // Render Nodes (HTML Elements)
+      nodes.forEach(n => {
+        const colorObj = COLORS.find(c => c.id === n.color) || COLORS[0];
+        
+        const el = document.createElement('div');
+        el.className = `absolute node-transition rounded-xl shadow-md border-2 ${colorObj.border} ${colorObj.bg} ${colorObj.text} flex flex-col justify-between overflow-hidden group`;
+        el.style.width = `${NODE_WIDTH}px`;
+        el.style.left = `${n._x - NODE_WIDTH / 2}px`;
+        el.style.top = `${n._y}px`;
+        el.id = n.id;
+
+        // Node Content
+        let imageHtml = '';
+        if (n.image) {
+          imageHtml = `<div class="w-full h-24 overflow-hidden bg-black/10 flex items-center justify-center border-b border-white/20">
+            <img src="${n.image}" class="w-full h-full object-cover" onerror="this.src='https://placehold.co/300x150/e2e8f0/64748b?text=Image+Error'">
+          </div>`;
+        }
+
+        el.innerHTML = `
+          ${imageHtml}
+          <div class="p-3">
+            <p class="text-xs font-medium whitespace-pre-wrap leading-relaxed break-words">${escapeHtml(n.text)}</p>
+          </div>
+          <div class="px-2 py-1.5 bg-black/15 flex justify-between items-center opacity-90 group-hover:opacity-100 transition-opacity text-xs border-t border-white/10">
+            <button onclick="openEditModal('${n.id}')" class="p-1 hover:bg-white/20 rounded transition flex items-center gap-1 text-[11px]" title="編集">
+              <i data-lucide="edit-2" class="w-3 h-3"></i> 編集
+            </button>
+            <div class="flex items-center gap-1">
+              ${n.id !== treeData.id ? `
+                <button onclick="handleDeleteNode('${n.id}')" class="p-1 hover:bg-red-500/30 text-rose-100 rounded transition" title="削除">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+              ` : ''}
+              <button onclick="handleAddNode('${n.id}')" class="p-1 bg-white/20 hover:bg-white/30 rounded transition flex items-center gap-1 text-[11px] font-semibold" title="分岐（子ノード）を追加">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i> 分岐
+              </button>
+            </div>
+          </div>
+        `;
+        container.appendChild(el);
+      });
+
+      // Render Connections (SVG Bezier Curves)
+      // DOM updates are queued; calculating DOM heights accurately via setTimeout or offsetHeight
+      requestAnimationFrame(() => {
+        connections.forEach(({ parent, child }) => {
+          const parentEl = document.getElementById(parent.id);
+          const childEl = document.getElementById(child.id);
+
+          if (!parentEl || !childEl) return;
+
+          const pHeight = parentEl.offsetHeight;
+
+          // Points
+          const x1 = parent._x;
+          const y1 = parent._y + pHeight;
+          const x2 = child._x;
+          const y2 = child._y;
+
+          // Smooth cubic bezier control points
+          const dy = Math.abs(y2 - y1) * 0.5;
+          const pathD = `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
+
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', pathD);
+          path.setAttribute('stroke', '#94a3b8');
+          path.setAttribute('stroke-width', '2');
+          path.setAttribute('fill', 'none');
+          path.setAttribute('marker-end', 'url(#arrowhead)');
+          path.setAttribute('class', 'transition-all duration-300');
+
+          svgLayer.appendChild(path);
+        });
+
+        // Initialize icons rendered dynamically
+        lucide.createIcons();
+      });
+
+      saveToStorage();
+    }
+
+    // Utility: HTML Escape
+    function escapeHtml(str) {
+      return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    // --- NODE ACTIONS ---
+    window.handleAddNode = function(parentId) {
+      const parent = findNode(treeData, parentId);
+      if (parent) {
+        if (!parent.children) parent.children = [];
+        const newNode = {
+          id: generateId(),
+          text: '新しいステップ',
+          color: parent.color, // Inherit parent color
+          image: '',
+          children: []
+        };
+        parent.children.push(newNode);
+        render();
+        showToast('新しい分岐を追加しました');
+      }
+    };
+
+    window.handleDeleteNode = function(nodeId) {
+      if (nodeId === treeData.id) {
+        showToast('ルートノードは削除できません');
+        return;
+      }
+      if (confirm('このノードとそれに連なるすべての分岐を削除しますか？')) {
+        deleteNode(treeData, nodeId);
+        render();
+        showToast('ノードを削除しました');
+      }
+    };
+
+    // --- EDIT MODAL LOGIC ---
+    function initColorPicker() {
+      const picker = document.getElementById('colorPicker');
+      picker.innerHTML = '';
+      COLORS.forEach(c => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `h-9 rounded-lg ${c.bg} flex items-center justify-center transition border-2 border-transparent hover:scale-105`;
+        btn.dataset.colorId = c.id;
+        btn.onclick = () => selectModalColor(c.id);
+        picker.appendChild(btn);
+      });
+    }
+
+    function selectModalColor(colorId) {
+      selectedColor = colorId;
+      const picker = document.getElementById('colorPicker');
+      Array.from(picker.children).forEach(btn => {
+        if (btn.dataset.colorId === colorId) {
+          btn.classList.add('ring-2', 'ring-offset-2', 'ring-indigo-600', 'scale-105');
+        } else {
+          btn.classList.remove('ring-2', 'ring-offset-2', 'ring-indigo-600', 'scale-105');
+        }
+      });
+    }
+
+    window.openEditModal = function(nodeId) {
+      selectedNodeId = nodeId;
+      const node = findNode(treeData, nodeId);
+      if (!node) return;
+
+      document.getElementById('editModalText').value = node.text || '';
+      document.getElementById('editModalImageUrl').value = node.image || '';
+      
+      // Update image preview
+      const previewContainer = document.getElementById('imagePreviewContainer');
+      const previewImg = document.getElementById('imagePreview');
+      if (node.image) {
+        previewImg.src = node.image;
+        previewContainer.classList.remove('hidden');
+      } else {
+        previewContainer.classList.add('hidden');
+      }
+
+      selectModalColor(node.color || 'indigo');
+
+      // Show Modal
+      const modal = document.getElementById('editModal');
+      const card = document.getElementById('modalCard');
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        card.classList.remove('scale-95', 'opacity-0');
+        card.classList.add('scale-100', 'opacity-100');
+      }, 10);
+    };
+
+    function closeEditModal() {
+      const modal = document.getElementById('editModal');
+      const card = document.getElementById('modalCard');
+      card.classList.remove('scale-100', 'opacity-100');
+      card.classList.add('scale-95', 'opacity-0');
+      setTimeout(() => {
+        modal.classList.add('hidden');
+        selectedNodeId = null;
+      }, 200);
+    }
+
+    // Save Modal
+    document.getElementById('btnModalSave').onclick = () => {
+      if (!selectedNodeId) return;
+      const node = findNode(treeData, selectedNodeId);
+      if (node) {
+        node.text = document.getElementById('editModalText').value;
+        node.image = document.getElementById('editModalImageUrl').value;
+        node.color = selectedColor;
+        render();
+        showToast('変更を保存しました');
+      }
+      closeEditModal();
+    };
+
+    document.getElementById('btnModalClose').onclick = closeEditModal;
+    document.getElementById('btnModalCancel').onclick = closeEditModal;
+
+    // Image Input Handlers
+    document.getElementById('editModalImageUrl').oninput = (e) => {
+      const url = e.target.value;
+      const previewContainer = document.getElementById('imagePreviewContainer');
+      const previewImg = document.getElementById('imagePreview');
+      if (url) {
+        previewImg.src = url;
+        previewContainer.classList.remove('hidden');
+      } else {
+        previewContainer.classList.add('hidden');
+      }
+    };
+
+    document.getElementById('editModalFileInput').onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          const dataUrl = evt.target.result;
+          document.getElementById('editModalImageUrl').value = dataUrl;
+          document.getElementById('imagePreview').src = dataUrl;
+          document.getElementById('imagePreviewContainer').classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+
+    document.getElementById('btnRemoveImage').onclick = () => {
+      document.getElementById('editModalImageUrl').value = '';
+      document.getElementById('imagePreviewContainer').classList.add('hidden');
+    };
+
+    // --- PAN & ZOOM LOGIC ---
+    const viewport = document.getElementById('viewport');
+    const scene = document.getElementById('scene');
+
+    function updateTransform() {
+      scene.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+      document.getElementById('zoomLevel').textContent = `${Math.round(zoomLevel * 100)}%`;
+    }
+
+    // Center Viewport
+    function centerView() {
+      const rect = viewport.getBoundingClientRect();
+      panX = rect.width / 2;
+      panY = 60;
+      zoomLevel = 1.0;
+      updateTransform();
+    }
+
+    viewport.onmousedown = (e) => {
+      if (e.target.closest('#nodesContainer') && e.target !== viewport) return;
+      isDragging = true;
+      dragStartX = e.clientX - panX;
+      dragStartY = e.clientY - panY;
+    };
+
+    window.onmousemove = (e) => {
+      if (!isDragging) return;
+      panX = e.clientX - dragStartX;
+      panY = e.clientY - dragStartY;
+      updateTransform();
+    };
+
+    window.onmouseup = () => {
+      isDragging = false;
+    };
+
+    viewport.onwheel = (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+      const newZoom = Math.min(Math.max(0.3, zoomLevel * zoomFactor), 2.5);
+
+      // Zoom towards mouse pointer
+      const rect = viewport.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      panX = mouseX - (mouseX - panX) * (newZoom / zoomLevel);
+      panY = mouseY - (mouseY - panY) * (newZoom / zoomLevel);
+
+      zoomLevel = newZoom;
+      updateTransform();
+    };
+
+    // Zoom Buttons
+    document.getElementById('btnZoomIn').onclick = () => {
+      zoomLevel = Math.min(2.5, zoomLevel * 1.15);
+      updateTransform();
+    };
+
+    document.getElementById('btnZoomOut').onclick = () => {
+      zoomLevel = Math.max(0.3, zoomLevel / 1.15);
+      updateTransform();
+    };
+
+    document.getElementById('btnResetZoom').onclick = centerView;
+
+    // Data Reset
+    document.getElementById('btnResetData').onclick = () => {
+      if (confirm('すべてのデータが初期化されます。よろしいですか？')) {
+        treeData = JSON.parse(JSON.stringify(defaultData));
+        render();
+        centerView();
+        showToast('データをリセットしました');
+      }
+    };
+
+    // --- PNG DOWNLOAD FEATURE (Canvas Rasterization) ---
+    document.getElementById('btnDownloadPng').onclick = async () => {
+      showToast('画像を生成中...');
+
+      // Calculate Bounding Box of all nodes
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      
+      const nodeElements = document.querySelectorAll('#nodesContainer > div');
+      if (nodeElements.length === 0) return;
+
+      nodeElements.forEach(el => {
+        const x = parseFloat(el.style.left);
+        const y = parseFloat(el.style.top);
+        const w = el.offsetWidth;
+        const h = el.offsetHeight;
+
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + w);
+        maxY = Math.max(maxY, y + h);
+      });
+
+      const padding = 60;
+      minX -= padding;
+      minY -= padding;
+      maxX += padding;
+      maxY += padding;
+
+      const width = maxX - minX;
+      const height = maxY - minY;
+
+      // Create SVG snapshot string
+      const container = document.getElementById('nodesContainer');
+      const svgLayer = document.getElementById('svgLayer');
+
+      // ForeignObject for HTML inside SVG
+      let nodesHtml = '';
+      nodeElements.forEach(el => {
+        const left = parseFloat(el.style.left) - minX;
+        const top = parseFloat(el.style.top) - minY;
+        const clone = el.cloneNode(true);
+        
+        // Remove interactive action buttons for clean export
+        const actionBars = clone.querySelectorAll('.bg-black\\/15');
+        actionBars.forEach(ab => ab.remove());
+
+        clone.style.left = `${left}px`;
+        clone.style.top = `${top}px`;
+        clone.style.transform = 'none';
+
+        nodesHtml += new XMLSerializer().serializeToString(clone);
+      });
+
+      // Connections paths adjusted to bounds
+      const paths = svgLayer.querySelectorAll('path');
+      let pathsSvg = '';
+      paths.forEach(p => {
+        const d = p.getAttribute('d');
+        // Parse and offset path coordinates
+        const adjustedD = d.replace(/([M C])\s*(-?\d+\.?\d*)\s*(-?\d+\.?\d*)/g, (match, cmd, x, y) => {
+          return `${cmd} ${parseFloat(x) - minX} ${parseFloat(y) - minY}`;
+        });
+        pathsSvg += `<path d="${adjustedD}" stroke="#94a3b8" stroke-width="2.5" fill="none" marker-end="url(#arrowhead)"/>`;
+      });
+
+      const fullSvg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+          <defs>
+            <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#94a3b8" />
+            </marker>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+              * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+            </style>
+          </defs>
+          <rect width="100%" height="100%" fill="#f8fafc"/>
+          <g>
+            ${pathsSvg}
+          </g>
+          <foreignObject width="${width}" height="${height}">
+            <div xmlns="http://www.w3.org/1999/xhtml" style="position:relative; width:${width}px; height:${height}px;">
+              <!-- Tailwind styles inclusion trick -->
+              <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"/>
+              ${nodesHtml}
+            </div>
+          </foreignObject>
+        </svg>
+      `;
+
+      // Render onto canvas
+      const img = new Image();
+      const svgBlob = new Blob([fullSvg], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width * 2; // High DPI
+        canvas.height = height * 2;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(2, 2);
+        ctx.drawImage(img, 0, 0);
+
+        URL.revokeObjectURL(url);
+
+        const a = document.createElement('a');
+        a.download = `flowchart_${new Date().toISOString().slice(0, 10)}.png`;
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+        showToast('PNG画像をダウンロードしました');
+      };
+      img.src = url;
+    };
+
+    // --- INITIALIZATION ---
+    window.onload = () => {
+      initColorPicker();
+      treeData = loadFromStorage() || JSON.parse(JSON.stringify(defaultData));
+      render();
+      centerView();
+      lucide.createIcons();
+    };
+  </script>
+</body>
+</html>
