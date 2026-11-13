@@ -302,10 +302,19 @@
       if (!textarea || !sizer) return;
       const val = textarea.value || textarea.placeholder || ' ';
       sizer.textContent = val.endsWith('\n') ? val + ' ' : val;
-      const measuredW = Math.min(256, Math.max(56, sizer.offsetWidth + 4));
+      const measuredW = Math.min(360, Math.max(60, Math.ceil(sizer.getBoundingClientRect().width) + 14));
       textarea.style.width = `${measuredW}px`;
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.max(20, textarea.scrollHeight)}px`;
+    }
+
+    // Auto-size branch label input to fit its text so it never clips
+    function syncEdgeInputWidth(inputEl, sizerEl) {
+      if (!inputEl || !sizerEl) return;
+      const val = inputEl.value || inputEl.placeholder || ' ';
+      sizerEl.textContent = val;
+      const measuredW = Math.max(40, Math.ceil(sizerEl.scrollWidth || sizerEl.getBoundingClientRect().width) + 18);
+      inputEl.style.width = `${measuredW}px`;
     }
 
     // --- STORAGE MANAGEMENT ---
@@ -350,10 +359,20 @@
       }
 
       let totalWidth = 0;
+      const n = node.children.length;
       node.children.forEach((child, idx) => {
         measureSubtrees(child);
-        totalWidth += child._subtreeWidth;
-        if (idx < node.children.length - 1) totalWidth += GAP_X;
+        if (n >= 2) {
+          const wrapEl = document.querySelector(`.edge-label-wrap[data-child-id="${child.id}"]`);
+          const labelW = wrapEl ? wrapEl.offsetWidth : 0;
+          const isOuter = (idx === 0 || idx === n - 1);
+          // 外側(左端・右端)の分岐は外側へ伸長するためサブツリー幅に算入し、内側ズレを防ぐ
+          child._effectiveWidth = isOuter ? Math.max(child._subtreeWidth, labelW * 1.4) : child._subtreeWidth;
+        } else {
+          child._effectiveWidth = child._subtreeWidth;
+        }
+        totalWidth += child._effectiveWidth;
+        if (idx < n - 1) totalWidth += GAP_X;
       });
 
       node._subtreeWidth = Math.max(node._width, totalWidth);
@@ -365,13 +384,23 @@
 
       if (!node.children || node.children.length === 0) return;
 
-      let startX = currentX - node._subtreeWidth / 2;
+      const children = node.children;
+      const n = children.length;
       const nextY = currentY + node._height + GAP_Y;
 
-      node.children.forEach((child) => {
-        const childCenterX = startX + child._subtreeWidth / 2;
+      // 各選択肢の基本(最小)サブツリー幅を基準に配置し、外側のラベル伸長が反対側を押し出さないようにする
+      let baseTotal = 0;
+      children.forEach((c, idx) => {
+        baseTotal += c._subtreeWidth;
+        if (idx < n - 1) baseTotal += GAP_X;
+      });
+
+      let startX = currentX - baseTotal / 2;
+      children.forEach((child) => {
+        const w = child._subtreeWidth;
+        const childCenterX = startX + w / 2;
         positionNodes(child, childCenterX, nextY);
-        startX += child._subtreeWidth + GAP_X;
+        startX += w + GAP_X;
       });
     }
 
@@ -406,17 +435,17 @@
         if (!el) {
           el = document.createElement('div');
           el.id = node.id;
-          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center overflow-hidden cursor-pointer group min-w-[76px] max-w-[280px]';
+          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center overflow-hidden cursor-pointer group min-w-[80px] max-w-[380px]';
           el.innerHTML = `
             <div class="node-image-wrap w-full bg-black/5 flex items-center justify-center p-1 border-b border-black/5 hidden">
               <img class="node-image max-w-full max-h-24 object-contain rounded" alt="ノード画像">
             </div>
             <div class="px-2.5 py-1.5 relative flex items-center justify-center">
-              <span class="node-sizer invisible fixed pointer-events-none whitespace-pre-wrap break-words text-xs font-medium leading-normal max-w-[256px]" aria-hidden="true"></span>
+              <span class="node-sizer invisible fixed pointer-events-none whitespace-pre text-xs font-bold leading-normal max-w-[360px]" aria-hidden="true"></span>
               <textarea
                 rows="1"
                 placeholder="文字を入力"
-                class="node-input node-text bg-transparent border-0 resize-none overflow-hidden text-xs font-medium leading-normal outline-none text-center p-0 m-0 focus:ring-0 placeholder:opacity-50"
+                class="node-input node-text bg-transparent border-0 resize-none overflow-hidden text-xs font-bold leading-normal outline-none text-center p-0 m-0 focus:ring-0 placeholder:opacity-50"
               ></textarea>
             </div>
           `;
@@ -569,19 +598,23 @@
           path.setAttribute('marker-end', 'url(#arrowhead)');
           svgLayer.appendChild(path);
 
-          // 分岐が2つ以上ある場合のみ、横向き矢印の上に枠なしの小さめラベルを表示
+          // 分岐が2つ以上ある場合のみ、親からの縦線を基準に外側へ伸びる枠なしラベルを表示
           if (parent.children && parent.children.length >= 2) {
             activeEdgeChildIds.add(child.id);
             let labelWrapper = existingEdgeInputs.get(child.id);
             if (!labelWrapper) {
               labelWrapper = document.createElement('div');
               labelWrapper.dataset.childId = child.id;
-              labelWrapper.className = 'edge-label-wrap absolute transform -translate-x-1/2 -translate-y-full z-10 pb-0.5';
+              labelWrapper.className = 'edge-label-wrap absolute z-10 pb-0.5 flex items-center whitespace-nowrap w-max';
+
+              const labelSizer = document.createElement('span');
+              labelSizer.className = 'edge-label-sizer invisible absolute pointer-events-none whitespace-pre text-[10px] font-bold px-1';
+              labelSizer.setAttribute('aria-hidden', 'true');
 
               const labelInput = document.createElement('input');
               labelInput.type = 'text';
               labelInput.placeholder = '分岐名';
-              labelInput.className = 'node-input text-[10px] bg-transparent border-0 text-center outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1 font-medium w-16';
+              labelInput.className = 'node-input text-[10px] bg-transparent border-0 outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1 font-bold min-w-[40px] max-w-none shrink-0';
 
               labelInput.addEventListener('focus', () => {
                 if (selectedNodeId !== child.id) {
@@ -597,30 +630,52 @@
                 const targetChild = findNode(treeData, child.id);
                 if (targetChild) {
                   targetChild.edgeLabel = e.target.value;
+                  syncEdgeInputWidth(labelInput, labelSizer);
                   const ribbonEdge = document.getElementById('ribbonEdgeLabelInput');
                   if (selectedNodeId === child.id && document.activeElement !== ribbonEdge) {
                     ribbonEdge.value = e.target.value;
                   }
+                  relayoutOnly();
                   saveToStorage();
                 }
               });
 
+              labelWrapper.appendChild(labelSizer);
               labelWrapper.appendChild(labelInput);
               edgeLabelsContainer.appendChild(labelWrapper);
             }
 
-            const midX = (x1 + x2) / 2;
-            labelWrapper.style.left = `${midX}px`;
-            labelWrapper.style.top = `${midY}px`;
-
             const inputEl = labelWrapper.querySelector('input');
+            const sizerEl = labelWrapper.querySelector('.edge-label-sizer');
             inputEl.style.color = contrastColor;
+            inputEl.style.backgroundColor = 'transparent';
             inputEl.classList.toggle('focus:bg-slate-800/90', isDarkBg);
             inputEl.classList.toggle('focus:bg-white/90', !isDarkBg);
             inputEl.classList.toggle('placeholder:text-slate-300', isDarkBg);
             inputEl.classList.toggle('placeholder:text-slate-500', !isDarkBg);
             if (document.activeElement !== inputEl) {
               inputEl.value = child.edgeLabel || '';
+            }
+            syncEdgeInputWidth(inputEl, sizerEl);
+
+            // 親の縦線(x1)を基準に、左側なら右揃え(左外側へ伸長)、右側なら左揃え(右外側へ伸長)、真下なら中央揃え
+            const diffX = x2 - x1;
+            labelWrapper.style.top = `${midY}px`;
+            if (diffX < -1) {
+              labelWrapper.style.left = `${x1 - 4}px`;
+              labelWrapper.style.transform = 'translate(-100%, -100%)';
+              labelWrapper.dataset.align = 'right';
+              inputEl.style.textAlign = 'right';
+            } else if (diffX > 1) {
+              labelWrapper.style.left = `${x1 + 4}px`;
+              labelWrapper.style.transform = 'translate(0%, -100%)';
+              labelWrapper.dataset.align = 'left';
+              inputEl.style.textAlign = 'left';
+            } else {
+              labelWrapper.style.left = `${x1}px`;
+              labelWrapper.style.transform = 'translate(-50%, -100%)';
+              labelWrapper.dataset.align = 'center';
+              inputEl.style.textAlign = 'center';
             }
           }
         });
@@ -1061,7 +1116,7 @@
         const cloneTa = clone.querySelector('textarea');
         if (origTa && cloneTa) {
           const textDiv = document.createElement('div');
-          textDiv.className = 'text-xs font-medium leading-normal text-center whitespace-pre-wrap break-words';
+          textDiv.className = 'text-xs font-bold leading-normal text-center whitespace-pre-wrap break-words';
           textDiv.style.color = origTa.style.color;
           textDiv.textContent = origTa.value;
           cloneTa.replaceWith(textDiv);
@@ -1079,6 +1134,17 @@
         pathsSvg += `<path d="${d}" stroke="${contrastColor}" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"/>`;
       });
 
+      let edgeLabelsHtml = '';
+      document.querySelectorAll('#edgeLabelsContainer > .edge-label-wrap').forEach(wrap => {
+        const inp = wrap.querySelector('input');
+        if (!inp || !inp.value.trim()) return;
+        const left = parseFloat(wrap.style.left) - minX;
+        const top = parseFloat(wrap.style.top) - minY;
+        const align = wrap.dataset.align || 'center';
+        const translateX = align === 'right' ? '-100%' : (align === 'left' ? '0%' : '-50%');
+        edgeLabelsHtml += `<div style="position:absolute; left:${left}px; top:${top}px; transform:translate(${translateX}, -100%); padding:0 4px 2px 4px; text-align:${align}; font-size:10px; font-weight:700; color:${contrastColor}; white-space:nowrap;">${escapeHtml(inp.value)}</div>`;
+      });
+
       const svgStr = `
         <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
           <defs>
@@ -1092,6 +1158,7 @@
             <div xmlns="http://www.w3.org/1999/xhtml" style="position:relative; width:${w}px; height:${h}px;">
               <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"/>
               ${nodesHtml}
+              ${edgeLabelsHtml}
             </div>
           </foreignObject>
         </svg>
