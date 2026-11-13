@@ -362,16 +362,7 @@
       const n = node.children.length;
       node.children.forEach((child, idx) => {
         measureSubtrees(child);
-        if (n >= 2) {
-          const wrapEl = document.querySelector(`.edge-label-wrap[data-child-id="${child.id}"]`);
-          const labelW = wrapEl ? wrapEl.offsetWidth : 0;
-          const isOuter = (idx === 0 || idx === n - 1);
-          // 外側(左端・右端)の分岐は外側へ伸長するためサブツリー幅に算入し、内側ズレを防ぐ
-          child._effectiveWidth = isOuter ? Math.max(child._subtreeWidth, labelW * 1.4) : child._subtreeWidth;
-        } else {
-          child._effectiveWidth = child._subtreeWidth;
-        }
-        totalWidth += child._effectiveWidth;
+        totalWidth += child._subtreeWidth;
         if (idx < n - 1) totalWidth += GAP_X;
       });
 
@@ -388,7 +379,6 @@
       const n = children.length;
       const nextY = currentY + node._height + GAP_Y;
 
-      // 各選択肢の基本(最小)サブツリー幅を基準に配置し、外側のラベル伸長が反対側を押し出さないようにする
       let baseTotal = 0;
       children.forEach((c, idx) => {
         baseTotal += c._subtreeWidth;
@@ -635,7 +625,6 @@
                   if (selectedNodeId === child.id && document.activeElement !== ribbonEdge) {
                     ribbonEdge.value = e.target.value;
                   }
-                  relayoutOnly();
                   saveToStorage();
                 }
               });
