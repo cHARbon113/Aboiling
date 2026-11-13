@@ -255,7 +255,7 @@
 
     // TIGHT COMPACT LAYOUT CONSTANTS
     const GAP_X = 16; // Horizontal gap between siblings
-    const GAP_Y = 36; // Vertical gap between parent and child
+    const GAP_Y = 44; // Vertical gap between parent and child (includes space for vertical arrow labels)
     const STORAGE_KEY = 'flowchart_v3_data';
     const DEFAULT_NEW_TEXT = '新規項目';
 
@@ -355,6 +355,7 @@
 
       if (!node.children || node.children.length === 0) {
         node._subtreeWidth = node._width;
+        node._centerOffset = node._width / 2;
         return;
       }
 
@@ -367,6 +368,7 @@
       });
 
       node._subtreeWidth = Math.max(node._width, totalWidth);
+      node._centerOffset = node._subtreeWidth / 2;
     }
 
     function positionNodes(node, currentX, currentY) {
@@ -577,7 +579,8 @@
           const x2 = child._x;
           const y2 = child._y;
 
-          const midY = y1 + (y2 - y1) / 2;
+          // Keep horizontal bus close to parent so the vertical segment above each child has ample room
+          const midY = y1 + 12;
           const pathD = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
 
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -588,14 +591,14 @@
           path.setAttribute('marker-end', 'url(#arrowhead)');
           svgLayer.appendChild(path);
 
-          // 分岐が2つ以上ある場合のみ、親からの縦線を基準に外側へ伸びる枠なしラベルを表示
+          // 分岐が2つ以上ある場合のみ、各選択肢の真上にある縦矢印の中央にラベルを表示
           if (parent.children && parent.children.length >= 2) {
             activeEdgeChildIds.add(child.id);
             let labelWrapper = existingEdgeInputs.get(child.id);
             if (!labelWrapper) {
               labelWrapper = document.createElement('div');
               labelWrapper.dataset.childId = child.id;
-              labelWrapper.className = 'edge-label-wrap absolute z-10 pb-0.5 flex items-center whitespace-nowrap w-max';
+              labelWrapper.className = 'edge-label-wrap absolute z-10 flex items-center justify-center whitespace-nowrap w-max';
 
               const labelSizer = document.createElement('span');
               labelSizer.className = 'edge-label-sizer invisible absolute pointer-events-none whitespace-pre text-[10px] font-bold px-1';
@@ -604,7 +607,7 @@
               const labelInput = document.createElement('input');
               labelInput.type = 'text';
               labelInput.placeholder = '分岐名';
-              labelInput.className = 'node-input text-[10px] bg-transparent border-0 outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1 font-bold min-w-[40px] max-w-none shrink-0';
+              labelInput.className = 'node-input text-[10px] border-0 outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1 py-0.5 font-bold min-w-[40px] max-w-none shrink-0 text-center';
 
               labelInput.addEventListener('focus', () => {
                 if (selectedNodeId !== child.id) {
@@ -636,10 +639,11 @@
 
             const inputEl = labelWrapper.querySelector('input');
             const sizerEl = labelWrapper.querySelector('.edge-label-sizer');
+            const labelBg = hexToRgba(canvasBgColor, 0.88);
             inputEl.style.color = contrastColor;
-            inputEl.style.backgroundColor = 'transparent';
-            inputEl.classList.toggle('focus:bg-slate-800/90', isDarkBg);
-            inputEl.classList.toggle('focus:bg-white/90', !isDarkBg);
+            inputEl.style.backgroundColor = labelBg;
+            inputEl.classList.toggle('focus:bg-slate-800/95', isDarkBg);
+            inputEl.classList.toggle('focus:bg-white/95', !isDarkBg);
             inputEl.classList.toggle('placeholder:text-slate-300', isDarkBg);
             inputEl.classList.toggle('placeholder:text-slate-500', !isDarkBg);
             if (document.activeElement !== inputEl) {
@@ -647,25 +651,11 @@
             }
             syncEdgeInputWidth(inputEl, sizerEl);
 
-            // 親の縦線(x1)を基準に、左側なら右揃え(左外側へ伸長)、右側なら左揃え(右外側へ伸長)、真下なら中央揃え
-            const diffX = x2 - x1;
-            labelWrapper.style.top = `${midY}px`;
-            if (diffX < -1) {
-              labelWrapper.style.left = `${x1 - 4}px`;
-              labelWrapper.style.transform = 'translate(-100%, -100%)';
-              labelWrapper.dataset.align = 'right';
-              inputEl.style.textAlign = 'right';
-            } else if (diffX > 1) {
-              labelWrapper.style.left = `${x1 + 4}px`;
-              labelWrapper.style.transform = 'translate(0%, -100%)';
-              labelWrapper.dataset.align = 'left';
-              inputEl.style.textAlign = 'left';
-            } else {
-              labelWrapper.style.left = `${x1}px`;
-              labelWrapper.style.transform = 'translate(-50%, -100%)';
-              labelWrapper.dataset.align = 'center';
-              inputEl.style.textAlign = 'center';
-            }
+            // 選択肢の上の縦矢印（x2, midY〜y2の中間）に中央揃えで配置
+            const verticalMidY = midY + (y2 - midY - 4) / 2;
+            labelWrapper.style.left = `${x2}px`;
+            labelWrapper.style.top = `${verticalMidY}px`;
+            labelWrapper.style.transform = 'translate(-50%, -50%)';
           }
         });
 
@@ -796,6 +786,14 @@
       let v = val.trim();
       if (!v.startsWith('#')) v = '#' + v;
       return /^#[0-9A-Fa-f]{6}$/.test(v) ? v.toLowerCase() : null;
+    }
+
+    function hexToRgba(hexColor, alpha) {
+      const hex = normalizeHex(hexColor) || '#f1f5f9';
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
     }
 
     function getContrastColorForBg(hexColor) {
@@ -1124,14 +1122,13 @@
       });
 
       let edgeLabelsHtml = '';
+      const labelBgRgba = hexToRgba(canvasBgColor, 0.88);
       document.querySelectorAll('#edgeLabelsContainer > .edge-label-wrap').forEach(wrap => {
         const inp = wrap.querySelector('input');
         if (!inp || !inp.value.trim()) return;
         const left = parseFloat(wrap.style.left) - minX;
         const top = parseFloat(wrap.style.top) - minY;
-        const align = wrap.dataset.align || 'center';
-        const translateX = align === 'right' ? '-100%' : (align === 'left' ? '0%' : '-50%');
-        edgeLabelsHtml += `<div style="position:absolute; left:${left}px; top:${top}px; transform:translate(${translateX}, -100%); padding:0 4px 2px 4px; text-align:${align}; font-size:10px; font-weight:700; color:${contrastColor}; white-space:nowrap;">${escapeHtml(inp.value)}</div>`;
+        edgeLabelsHtml += `<div style="position:absolute; left:${left}px; top:${top}px; transform:translate(-50%, -50%); padding:1px 4px; border-radius:4px; background-color:${labelBgRgba}; text-align:center; font-size:10px; font-weight:700; color:${contrastColor}; white-space:nowrap;">${escapeHtml(inp.value)}</div>`;
       });
 
       const svgStr = `
