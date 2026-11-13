@@ -28,7 +28,6 @@
       background-image: radial-gradient(circle, rgba(0,0,0,0.12) 1px, transparent 1px);
     }
     .node-transition {
-      /* チラつきを防ぐためトランジションを外し、GPUアクセラレーションを有効化 */
       will-change: transform, left, top;
     }
     .selected-node {
@@ -154,15 +153,9 @@
 
   <!-- Main Work Area -->
   <main class="flex-1 relative overflow-hidden bg-slate-100 bg-grid cursor-grab active:cursor-grabbing" id="viewport">
-    <div id="scene" class="absolute left-0 top-0 origin-0 transition-transform duration-75">
+    <div id="scene" class="absolute left-0 top-0 origin-0">
       <!-- SVG Connectors Layer -->
-      <svg id="svgLayer" class="absolute left-0 top-0 pointer-events-none" style="overflow: visible;">
-        <defs>
-          <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#1e293b" />
-          </marker>
-        </defs>
-      </svg>
+      <svg id="svgLayer" class="absolute left-0 top-0 pointer-events-none" style="overflow: visible;"></svg>
 
       <!-- Connection Edge Labels Overlay Container -->
       <div id="edgeLabelsContainer" class="absolute left-0 top-0 pointer-events-auto"></div>
@@ -254,8 +247,8 @@
     let lastPinchDist = null;
     let lastPinchCenter = null;
 
-    const GAP_X = 16;
-    const GAP_Y = 44;
+    const GAP_X = 24;
+    const GAP_Y = 60; // 縦幅を十分に確保してラベルとノードの重なりを防止
     const STORAGE_KEY = 'flowchart_v3_data';
     const DEFAULT_NEW_TEXT = '';
 
@@ -300,17 +293,17 @@
       if (!textarea || !sizer) return;
       const val = textarea.value || textarea.placeholder || ' ';
       sizer.textContent = val;
-      const measuredW = Math.max(80, Math.ceil(sizer.getBoundingClientRect().width) + 18);
+      const measuredW = Math.max(90, Math.ceil(sizer.getBoundingClientRect().width) + 20);
       textarea.style.width = `${measuredW}px`;
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.max(20, textarea.scrollHeight)}px`;
+      textarea.style.height = `${Math.max(22, textarea.scrollHeight)}px`;
     }
 
     function syncEdgeInputWidth(inputEl, sizerEl) {
       if (!inputEl || !sizerEl) return;
       const val = inputEl.value || inputEl.placeholder || ' ';
       sizerEl.textContent = val;
-      const measuredW = Math.max(40, Math.ceil(sizerEl.getBoundingClientRect().width) + 18);
+      const measuredW = Math.max(44, Math.ceil(sizerEl.getBoundingClientRect().width) + 20);
       inputEl.style.width = `${measuredW}px`;
     }
 
@@ -346,8 +339,8 @@
     // --- TREE MEASUREMENT & CENTERING LAYOUT ---
     function measureSubtrees(node) {
       const nodeEl = document.getElementById(node.id);
-      node._width = nodeEl ? Math.max(80, nodeEl.offsetWidth) : 120;
-      node._height = nodeEl ? nodeEl.offsetHeight : 40;
+      node._width = nodeEl ? Math.max(90, nodeEl.offsetWidth) : 120;
+      node._height = nodeEl ? nodeEl.offsetHeight : 44;
 
       if (!node.children || node.children.length === 0) {
         node._subtreeWidth = node._width;
@@ -431,12 +424,12 @@
         if (!el) {
           el = document.createElement('div');
           el.id = node.id;
-          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center overflow-hidden cursor-pointer group min-w-[80px]';
+          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center overflow-hidden cursor-pointer group min-w-[90px]';
           el.innerHTML = `
             <div class="node-image-wrap w-full bg-black/5 flex items-center justify-center p-1 border-b border-black/5 hidden">
               <img class="node-image max-w-full max-h-24 object-contain rounded" alt="ノード画像">
             </div>
-            <div class="px-3 py-1.5 relative flex items-center justify-center">
+            <div class="px-3.5 py-2 relative flex items-center justify-center">
               <span class="node-sizer invisible fixed pointer-events-none whitespace-pre text-xs font-bold leading-normal" aria-hidden="true"></span>
               <textarea
                 rows="1"
@@ -541,15 +534,29 @@
 
       requestAnimationFrame(() => {
         measureSubtrees(treeData);
-        positionNodes(treeData, 0, 40);
+        positionNodes(treeData, 0, 60);
 
+        let minX = 0, minY = 0, maxX = 1200, maxY = 800;
         allNodes.forEach(node => {
           const el = document.getElementById(node.id);
           if (el) {
-            el.style.left = `${node._x - el.offsetWidth / 2}px`;
-            el.style.top = `${node._y}px`;
+            const l = node._x - el.offsetWidth / 2;
+            const t = node._y;
+            el.style.left = `${l}px`;
+            el.style.top = `${t}px`;
+            minX = Math.min(minX, l - 200);
+            minY = Math.min(minY, t - 200);
+            maxX = Math.max(maxX, l + el.offsetWidth + 200);
+            maxY = Math.max(maxY, t + el.offsetHeight + 200);
           }
         });
+
+        // SVGレイヤーのサイズと位置を動的に更新して線が消えないようにする
+        svgLayer.style.left = `${minX}px`;
+        svgLayer.style.top = `${minY}px`;
+        svgLayer.style.width = `${maxX - minX}px`;
+        svgLayer.style.height = `${maxY - minY}px`;
+        svgLayer.setAttribute('viewBox', `${minX} ${minY} ${maxX - minX} ${maxY - minY}`);
 
         const contrastColor = getContrastColorForBg(canvasBgColor);
         const isDarkBg = contrastColor === '#ffffff';
@@ -577,7 +584,7 @@
           const x2 = child._x;
           const y2 = child._y;
 
-          const midY = y1 + 12;
+          const midY = y1 + 16;
           const pathD = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
 
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -597,13 +604,13 @@
               labelWrapper.className = 'edge-label-wrap absolute z-10 flex items-center justify-center whitespace-nowrap w-max';
 
               const labelSizer = document.createElement('span');
-              labelSizer.className = 'edge-label-sizer invisible absolute pointer-events-none whitespace-pre text-[10px] font-bold px-1';
+              labelSizer.className = 'edge-label-sizer invisible absolute pointer-events-none whitespace-pre text-[10px] font-bold px-1.5';
               labelSizer.setAttribute('aria-hidden', 'true');
 
               const labelInput = document.createElement('input');
               labelInput.type = 'text';
               labelInput.placeholder = '分岐名';
-              labelInput.className = 'node-input text-[10px] border-0 outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1 py-0.5 font-bold min-w-[40px] max-w-none shrink-0 text-center';
+              labelInput.className = 'node-input text-[10px] border-0 outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1.5 py-0.5 font-bold min-w-[44px] max-w-none shrink-0 text-center';
 
               labelInput.addEventListener('focus', () => {
                 if (selectedNodeId !== child.id) {
@@ -635,7 +642,7 @@
 
             const inputEl = labelWrapper.querySelector('input');
             const sizerEl = labelWrapper.querySelector('.edge-label-sizer');
-            const labelBg = hexToRgba(canvasBgColor, 0.88);
+            const labelBg = hexToRgba(canvasBgColor, 0.92);
             inputEl.style.color = contrastColor;
             inputEl.style.backgroundColor = labelBg;
             inputEl.classList.toggle('focus:bg-slate-800/95', isDarkBg);
@@ -647,7 +654,7 @@
             }
             syncEdgeInputWidth(inputEl, sizerEl);
 
-            const verticalMidY = midY + (y2 - midY - 4) / 2;
+            const verticalMidY = midY + (y2 - midY - 6) / 2;
             labelWrapper.style.left = `${x2}px`;
             labelWrapper.style.top = `${verticalMidY}px`;
             labelWrapper.style.transform = 'translate(-50%, -50%)';
@@ -1111,13 +1118,13 @@
       });
 
       let edgeLabelsHtml = '';
-      const labelBgRgba = hexToRgba(canvasBgColor, 0.88);
+      const labelBgRgba = hexToRgba(canvasBgColor, 0.92);
       document.querySelectorAll('#edgeLabelsContainer > .edge-label-wrap').forEach(wrap => {
         const inp = wrap.querySelector('input');
         if (!inp || !inp.value.trim()) return;
         const left = parseFloat(wrap.style.left) - minX;
         const top = parseFloat(wrap.style.top) - minY;
-        edgeLabelsHtml += `<div style="position:absolute; left:${left}px; top:${top}px; transform:translate(-50%, -50%); padding:1px 4px; border-radius:4px; background-color:${labelBgRgba}; text-align:center; font-size:10px; font-weight:700; color:${contrastColor}; white-space:nowrap;">${escapeHtml(inp.value)}</div>`;
+        edgeLabelsHtml += `<div style="position:absolute; left:${left}px; top:${top}px; transform:translate(-50%, -50%); padding:2px 6px; border-radius:4px; background-color:${labelBgRgba}; text-align:center; font-size:10px; font-weight:700; color:${contrastColor}; white-space:nowrap;">${escapeHtml(inp.value)}</div>`;
       });
 
       const svgStr = `
@@ -1167,6 +1174,8 @@
       }
       render();
       centerView();
+      // ロード完了後に一度強制再描画・レイアウト計算を行って初期配置崩れを防ぐ
+      setTimeout(() => render(), 50);
     };
   </script>
 </body>
