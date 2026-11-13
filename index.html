@@ -28,7 +28,8 @@
       background-image: radial-gradient(circle, rgba(0,0,0,0.12) 1px, transparent 1px);
     }
     .node-transition {
-      transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      /* チラつきを防ぐためトランジションを外し、GPUアクセラレーションを有効化 */
+      will-change: transform, left, top;
     }
     .selected-node {
       ring: 2px;
@@ -253,11 +254,10 @@
     let lastPinchDist = null;
     let lastPinchCenter = null;
 
-    // TIGHT COMPACT LAYOUT CONSTANTS
-    const GAP_X = 16; // Horizontal gap between siblings
-    const GAP_Y = 44; // Vertical gap between parent and child (includes space for vertical arrow labels)
+    const GAP_X = 16;
+    const GAP_Y = 44;
     const STORAGE_KEY = 'flowchart_v3_data';
-    const DEFAULT_NEW_TEXT = '新規項目';
+    const DEFAULT_NEW_TEXT = '';
 
     // --- CUSTOM CONFIRM DIALOG ---
     let confirmCallback = null;
@@ -284,7 +284,6 @@
       closeConfirmModal();
     };
 
-    // Check if a node or any descendant has been edited or contains sub-branches
     function isBranchEditedOrHasChildren(node, parentNode) {
       if (!node) return false;
       if (node.children && node.children.length > 0) return true;
@@ -297,27 +296,24 @@
       return false;
     }
 
-    // Auto-size textarea & hidden sizer so node width/height hugs text cleanly
     function syncTextareaDimensions(textarea, sizer) {
       if (!textarea || !sizer) return;
       const val = textarea.value || textarea.placeholder || ' ';
-      sizer.textContent = val.endsWith('\n') ? val + ' ' : val;
-      const measuredW = Math.min(360, Math.max(60, Math.ceil(sizer.getBoundingClientRect().width) + 14));
+      sizer.textContent = val;
+      const measuredW = Math.max(80, Math.ceil(sizer.getBoundingClientRect().width) + 18);
       textarea.style.width = `${measuredW}px`;
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.max(20, textarea.scrollHeight)}px`;
     }
 
-    // Auto-size branch label input to fit its text so it never clips
     function syncEdgeInputWidth(inputEl, sizerEl) {
       if (!inputEl || !sizerEl) return;
       const val = inputEl.value || inputEl.placeholder || ' ';
       sizerEl.textContent = val;
-      const measuredW = Math.max(40, Math.ceil(sizerEl.scrollWidth || sizerEl.getBoundingClientRect().width) + 18);
+      const measuredW = Math.max(40, Math.ceil(sizerEl.getBoundingClientRect().width) + 18);
       inputEl.style.width = `${measuredW}px`;
     }
 
-    // --- STORAGE MANAGEMENT ---
     function saveToStorage() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -347,7 +343,7 @@
       setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 2200);
     }
 
-    // --- TREE MEASUREMENT & COMPACT AUTOMATIC LAYOUT ---
+    // --- TREE MEASUREMENT & CENTERING LAYOUT ---
     function measureSubtrees(node) {
       const nodeEl = document.getElementById(node.id);
       node._width = nodeEl ? Math.max(80, nodeEl.offsetWidth) : 120;
@@ -366,7 +362,6 @@
         if (idx < n - 1) totalWidth += GAP_X;
       });
 
-      // サブツリー全体の幅は「子要素の合計幅」と「自身の幅」の大きい方に合わせる
       node._subtreeWidth = Math.max(node._width, totalWidth);
     }
 
@@ -380,7 +375,6 @@
       const n = children.length;
       const nextY = currentY + node._height + GAP_Y;
 
-      // 子要素全体の左端のX座標を算出
       let baseTotal = 0;
       children.forEach((c, idx) => {
         baseTotal += c._subtreeWidth;
@@ -395,8 +389,7 @@
         startX += w + GAP_X;
       });
 
-      // 親項目の位置を調整:
-      // 奇数個なら中心の選択肢の真上、偶数個なら中心2つの選択肢の中央に合わせる
+      // 親項目は奇数個なら中心の選択肢の上、偶数個なら中心2つの選択肢の間
       if (n > 0) {
         if (n % 2 === 1) {
           const midChild = children[Math.floor(n / 2)];
@@ -409,7 +402,6 @@
       }
     }
 
-    // --- RENDER ENGINE ---
     function render(skipActiveInputSync = false) {
       const container = document.getElementById('nodesContainer');
       const edgeLabelsContainer = document.getElementById('edgeLabelsContainer');
@@ -421,7 +413,6 @@
         document.getElementById('canvasBgHex').value = canvasBgColor;
       }
 
-      // STEP 1: Sync Nodes without destroying active textareas
       const existingNodes = new Map();
       container.querySelectorAll('.flow-node').forEach(el => existingNodes.set(el.id, el));
 
@@ -440,17 +431,17 @@
         if (!el) {
           el = document.createElement('div');
           el.id = node.id;
-          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center overflow-hidden cursor-pointer group min-w-[80px] max-w-[380px]';
+          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center overflow-hidden cursor-pointer group min-w-[80px]';
           el.innerHTML = `
             <div class="node-image-wrap w-full bg-black/5 flex items-center justify-center p-1 border-b border-black/5 hidden">
               <img class="node-image max-w-full max-h-24 object-contain rounded" alt="ノード画像">
             </div>
-            <div class="px-2.5 py-1.5 relative flex items-center justify-center">
-              <span class="node-sizer invisible fixed pointer-events-none whitespace-pre text-xs font-bold leading-normal max-w-[360px]" aria-hidden="true"></span>
+            <div class="px-3 py-1.5 relative flex items-center justify-center">
+              <span class="node-sizer invisible fixed pointer-events-none whitespace-pre text-xs font-bold leading-normal" aria-hidden="true"></span>
               <textarea
                 rows="1"
-                placeholder="文字を入力"
-                class="node-input node-text bg-transparent border-0 resize-none overflow-hidden text-xs font-bold leading-normal outline-none text-center p-0 m-0 focus:ring-0 placeholder:opacity-50"
+                placeholder="テキストを入力"
+                class="node-input node-text bg-transparent border-0 resize-none overflow-hidden text-xs font-bold leading-normal outline-none text-center p-0 m-0 focus:ring-0 placeholder:opacity-40 whitespace-pre"
               ></textarea>
             </div>
           `;
@@ -491,7 +482,6 @@
           });
         }
 
-        // Selection Highlight
         if (node.id === selectedNodeId) {
           el.classList.add('selected-node', 'shadow-md');
         } else {
@@ -501,7 +491,6 @@
         el.style.backgroundColor = node.bgColor || '#ffffff';
         el.style.color = node.textColor || '#1e293b';
 
-        // Image sync
         const imgWrap = el.querySelector('.node-image-wrap');
         const imgEl = el.querySelector('.node-image');
         if (node.image) {
@@ -515,7 +504,6 @@
           imgEl.removeAttribute('src');
         }
 
-        // Text sync (preserve active focus)
         const textEl = el.querySelector('.node-text');
         const sizerEl = el.querySelector('.node-sizer');
         textEl.style.color = node.textColor || '#1e293b';
@@ -525,13 +513,11 @@
         syncTextareaDimensions(textEl, sizerEl);
       });
 
-      // Remove obsolete nodes
       const activeIds = new Set(allNodes.map(n => n.id));
       existingNodes.forEach((el, id) => {
         if (!activeIds.has(id)) el.remove();
       });
 
-      // STEP 2: Position & Orthogonal Connectors Calculation
       relayoutOnly(connections, allNodes);
       lucide.createIcons();
       updateRibbonState();
@@ -565,7 +551,6 @@
           }
         });
 
-        // Draw Lines & Branch Text Labels
         const contrastColor = getContrastColorForBg(canvasBgColor);
         const isDarkBg = contrastColor === '#ffffff';
         svgLayer.innerHTML = `
@@ -592,7 +577,6 @@
           const x2 = child._x;
           const y2 = child._y;
 
-          // Keep horizontal bus close to parent so the vertical segment above each child has ample room
           const midY = y1 + 12;
           const pathD = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
 
@@ -604,7 +588,6 @@
           path.setAttribute('marker-end', 'url(#arrowhead)');
           svgLayer.appendChild(path);
 
-          // 分岐が2つ以上ある場合のみ、各選択肢の真上にある縦矢印の中央にラベルを表示
           if (parent.children && parent.children.length >= 2) {
             activeEdgeChildIds.add(child.id);
             let labelWrapper = existingEdgeInputs.get(child.id);
@@ -664,7 +647,6 @@
             }
             syncEdgeInputWidth(inputEl, sizerEl);
 
-            // 選択肢の上の縦矢印（x2, midY〜y2の中間）に中央揃えで配置
             const verticalMidY = midY + (y2 - midY - 4) / 2;
             labelWrapper.style.left = `${x2}px`;
             labelWrapper.style.top = `${verticalMidY}px`;
@@ -678,7 +660,6 @@
       });
     }
 
-    // --- NODE SELECTION & RIBBON STATE CONTROL ---
     function selectNode(id) {
       selectedNodeId = id;
       render();
@@ -722,7 +703,7 @@
         } else {
           btnRemoveImg.classList.add('hidden');
         }
-        // Branch Edge Label input binding (available if not root and parent has 2+ children)
+
         const parentNode = findParentNode(treeData, selectedNode.id);
         if (parentNode && parentNode.children && parentNode.children.length >= 2) {
           branchBox.classList.remove('hidden');
@@ -746,7 +727,6 @@
       }
     }
 
-    // Ribbon Action Handlers
     document.getElementById('btnRibbonAddChild').onclick = () => {
       if (!selectedNodeId) return;
       const parent = findNode(treeData, selectedNodeId);
@@ -754,7 +734,6 @@
         if (!parent.children) parent.children = [];
         const newNodeId = generateId();
         
-        // 親（分岐元）ノードの色やスタイルを継承
         parent.children.push({
           id: newNodeId,
           text: DEFAULT_NEW_TEXT,
@@ -903,7 +882,6 @@
       }
     };
 
-    // Helper utilities
     function escapeHtml(str) {
       return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
@@ -946,7 +924,6 @@
       return 'node-' + Math.random().toString(36).substr(2, 9);
     }
 
-    // --- VIEWPORT PAN & ZOOM ---
     const viewport = document.getElementById('viewport');
     const scene = document.getElementById('scene');
 
@@ -1083,7 +1060,6 @@
       );
     };
 
-    // PNG Download Engine
     document.getElementById('btnDownloadPng').onclick = () => {
       showToast('画像を保存中...');
       const nodeElements = document.querySelectorAll('#nodesContainer > .flow-node');
@@ -1116,7 +1092,7 @@
         const cloneTa = clone.querySelector('textarea');
         if (origTa && cloneTa) {
           const textDiv = document.createElement('div');
-          textDiv.className = 'text-xs font-bold leading-normal text-center whitespace-pre-wrap break-words';
+          textDiv.className = 'text-xs font-bold leading-normal text-center whitespace-pre';
           textDiv.style.color = origTa.style.color;
           textDiv.textContent = origTa.value;
           cloneTa.replaceWith(textDiv);
