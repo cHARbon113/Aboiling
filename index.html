@@ -12,7 +12,14 @@
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #viewport {
       touch-action: none;
+    }
+    .node-input {
+      touch-action: auto;
+      user-select: text;
+      -webkit-user-select: text;
     }
     .bg-grid {
       background-size: 20px 20px;
@@ -36,7 +43,7 @@
     }
   </style>
 </head>
-<body class="bg-slate-100 text-slate-800 h-screen w-screen overflow-hidden flex flex-col select-none">
+<body class="bg-slate-100 text-slate-800 h-screen w-screen overflow-hidden flex flex-col">
 
   <!-- Header / Toolbar Ribbon -->
   <header class="bg-white border-b border-slate-200 px-3 md:px-6 py-2 flex flex-col gap-2 z-20 shadow-sm flex-shrink-0">
@@ -56,9 +63,10 @@
 
       <div class="flex items-center flex-wrap gap-1.5">
         <!-- Canvas Background -->
-        <div class="flex items-center bg-slate-100 rounded-lg px-2 py-1 border border-slate-200 gap-1.5" title="キャンバス背景色">
+        <div class="flex items-center bg-slate-100 rounded-lg px-2 py-1 border border-slate-200 gap-1" title="キャンバス背景色">
           <span class="text-[11px] font-medium text-slate-500 hidden sm:inline">背景:</span>
           <input type="color" id="canvasBgPicker" value="#f1f5f9" class="w-5 h-5 rounded cursor-pointer border-0 p-0 bg-transparent">
+          <input type="text" id="canvasBgHex" value="#f1f5f9" maxlength="7" class="w-16 text-[11px] font-mono bg-white border border-slate-200 rounded px-1 py-0.5 uppercase outline-none focus:border-indigo-500" aria-label="キャンバス背景カラーコード">
         </div>
 
         <!-- Zoom Controls -->
@@ -110,10 +118,12 @@
         <div class="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-md px-1.5 py-0.5">
           <span class="text-[10px] text-slate-500 font-medium">背景</span>
           <input type="color" id="ribbonBgColorPicker" value="#ffffff" class="w-4 h-4 rounded cursor-pointer border-0 p-0 bg-transparent disabled:opacity-40" disabled>
+          <input type="text" id="ribbonBgHex" value="#ffffff" maxlength="7" class="w-14 text-[10px] font-mono bg-white border border-slate-200 rounded px-1 py-0.5 uppercase outline-none focus:border-indigo-500 disabled:opacity-40" disabled aria-label="ノード背景カラーコード">
         </div>
         <div class="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-md px-1.5 py-0.5">
           <span class="text-[10px] text-slate-500 font-medium">文字</span>
           <input type="color" id="ribbonTextColorPicker" value="#1e293b" class="w-4 h-4 rounded cursor-pointer border-0 p-0 bg-transparent disabled:opacity-40" disabled>
+          <input type="text" id="ribbonTextHex" value="#1e293b" maxlength="7" class="w-14 text-[10px] font-mono bg-white border border-slate-200 rounded px-1 py-0.5 uppercase outline-none focus:border-indigo-500 disabled:opacity-40" disabled aria-label="ノード文字カラーコード">
         </div>
       </div>
 
@@ -163,6 +173,29 @@
   <div id="toast" class="fixed bottom-4 right-4 bg-slate-800 text-white text-xs px-3.5 py-2.5 rounded-xl shadow-lg border border-slate-700 flex items-center space-x-2 translate-y-20 opacity-0 transition-all z-50 pointer-events-none">
     <i data-lucide="info" class="w-4 h-4 text-indigo-400"></i>
     <span id="toastMsg">メッセージ</span>
+  </div>
+
+  <!-- Confirmation Modal Dialog (for Delete & Reset) -->
+  <div id="confirmModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-sm w-full p-5 flex flex-col gap-4">
+      <div class="flex items-start gap-3">
+        <div class="bg-red-100 text-red-600 p-2 rounded-xl shrink-0">
+          <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h3 id="confirmModalTitle" class="font-bold text-sm text-slate-800">削除の確認</h3>
+          <p id="confirmModalMessage" class="text-xs text-slate-600 mt-1 leading-relaxed">この分岐は編集済み、または子要素を含んでいます。本当に削除しますか？</p>
+        </div>
+      </div>
+      <div class="flex items-center justify-end gap-2 pt-1">
+        <button id="btnConfirmCancel" class="px-3.5 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
+          キャンセル
+        </button>
+        <button id="btnConfirmOk" class="px-3.5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-sm transition-colors">
+          削除する
+        </button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -220,6 +253,56 @@
     const GAP_X = 16; // Horizontal gap between siblings
     const GAP_Y = 36; // Vertical gap between parent and child
     const STORAGE_KEY = 'flowchart_v3_data';
+    const DEFAULT_NEW_TEXT = '新規項目';
+
+    // --- CUSTOM CONFIRM DIALOG ---
+    let confirmCallback = null;
+    function openConfirmModal(title, message, okLabel, onConfirm) {
+      document.getElementById('confirmModalTitle').textContent = title;
+      document.getElementById('confirmModalMessage').textContent = message;
+      document.getElementById('btnConfirmOk').textContent = okLabel;
+      confirmCallback = onConfirm;
+      const modal = document.getElementById('confirmModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeConfirmModal() {
+      const modal = document.getElementById('confirmModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      confirmCallback = null;
+    }
+
+    document.getElementById('btnConfirmCancel').onclick = closeConfirmModal;
+    document.getElementById('btnConfirmOk').onclick = () => {
+      if (confirmCallback) confirmCallback();
+      closeConfirmModal();
+    };
+
+    // Check if a node or any descendant has been edited or contains sub-branches
+    function isBranchEditedOrHasChildren(node, parentNode) {
+      if (!node) return false;
+      if (node.children && node.children.length > 0) return true;
+      if (node.text && node.text.trim() !== '' && node.text.trim() !== DEFAULT_NEW_TEXT) return true;
+      if (node.image) return true;
+      if (parentNode) {
+        if ((node.bgColor || '').toLowerCase() !== (parentNode.bgColor || '').toLowerCase()) return true;
+        if ((node.textColor || '').toLowerCase() !== (parentNode.textColor || '').toLowerCase()) return true;
+      }
+      return false;
+    }
+
+    // Auto-size textarea & hidden sizer so node width/height hugs text cleanly
+    function syncTextareaDimensions(textarea, sizer) {
+      if (!textarea || !sizer) return;
+      const val = textarea.value || textarea.placeholder || ' ';
+      sizer.textContent = val.endsWith('\n') ? val + ' ' : val;
+      const measuredW = Math.min(256, Math.max(56, sizer.offsetWidth + 4));
+      textarea.style.width = `${measuredW}px`;
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.max(20, textarea.scrollHeight)}px`;
+    }
 
     // --- STORAGE MANAGEMENT ---
     function saveToStorage() {
@@ -289,15 +372,18 @@
     }
 
     // --- RENDER ENGINE ---
-    function render() {
+    function render(skipActiveInputSync = false) {
       const container = document.getElementById('nodesContainer');
       const edgeLabelsContainer = document.getElementById('edgeLabelsContainer');
       const svgLayer = document.getElementById('svgLayer');
 
       document.getElementById('viewport').style.backgroundColor = canvasBgColor;
       document.getElementById('canvasBgPicker').value = canvasBgColor;
+      if (document.activeElement !== document.getElementById('canvasBgHex')) {
+        document.getElementById('canvasBgHex').value = canvasBgColor;
+      }
 
-      // STEP 1: Sync Nodes
+      // STEP 1: Sync Nodes without destroying active textareas
       const existingNodes = new Map();
       container.querySelectorAll('.flow-node').forEach(el => existingNodes.set(el.id, el));
 
@@ -316,8 +402,55 @@
         if (!el) {
           el = document.createElement('div');
           el.id = node.id;
-          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center overflow-hidden cursor-pointer group min-w-[80px] max-w-[280px]';
+          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center overflow-hidden cursor-pointer group min-w-[76px] max-w-[280px]';
+          el.innerHTML = `
+            <div class="node-image-wrap w-full bg-black/5 flex items-center justify-center p-1 border-b border-black/5 hidden">
+              <img class="node-image max-w-full max-h-24 object-contain rounded" alt="ノード画像">
+            </div>
+            <div class="px-2.5 py-1.5 relative flex items-center justify-center">
+              <span class="node-sizer invisible fixed pointer-events-none whitespace-pre-wrap break-words text-xs font-medium leading-normal max-w-[256px]" aria-hidden="true"></span>
+              <textarea
+                rows="1"
+                placeholder="文字を入力"
+                class="node-input node-text bg-transparent border-0 resize-none overflow-hidden text-xs font-medium leading-normal outline-none text-center p-0 m-0 focus:ring-0 placeholder:opacity-50"
+              ></textarea>
+            </div>
+          `;
           container.appendChild(el);
+
+          const textEl = el.querySelector('.node-text');
+          const sizerEl = el.querySelector('.node-sizer');
+
+          el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (selectedNodeId !== node.id) {
+              selectNode(node.id);
+            }
+          });
+
+          textEl.addEventListener('focus', () => {
+            if (selectedNodeId !== node.id) {
+              selectedNodeId = node.id;
+              document.querySelectorAll('.flow-node').forEach(n => n.classList.remove('selected-node', 'shadow-md'));
+              el.classList.add('selected-node', 'shadow-md');
+              updateRibbonState();
+            }
+          });
+
+          textEl.addEventListener('input', (e) => {
+            const currentNode = findNode(treeData, node.id);
+            if (currentNode) {
+              currentNode.text = e.target.value;
+              syncTextareaDimensions(textEl, sizerEl);
+              relayoutOnly();
+              saveToStorage();
+            }
+          });
+
+          textEl.addEventListener('blur', () => {
+            saveToStorage();
+            relayoutOnly();
+          });
         }
 
         // Selection Highlight
@@ -330,40 +463,28 @@
         el.style.backgroundColor = node.bgColor || '#ffffff';
         el.style.color = node.textColor || '#1e293b';
 
-        const imageHtml = node.image ? `
-          <div class="w-full bg-black/5 flex items-center justify-center p-1 border-b border-black/5">
-            <img src="${node.image}" class="max-w-full max-h-24 object-contain rounded">
-          </div>
-        ` : '';
-
-        el.innerHTML = `
-          ${imageHtml}
-          <div class="px-2.5 py-1.5">
-            <div 
-              contenteditable="true" 
-              class="node-text text-xs font-medium leading-normal outline-none text-center whitespace-pre-wrap break-words min-h-[1.2em]"
-              data-node-id="${node.id}"
-            >${escapeHtml(node.text)}</div>
-          </div>
-        `;
-
-        // Node Click & Inline Text Events
-        el.onclick = (e) => {
-          e.stopPropagation();
-          selectNode(node.id);
-        };
-
-        const textEl = el.querySelector('.node-text');
-        textEl.onblur = (e) => {
-          const val = e.target.innerText.trim();
-          if (node.text !== val) {
-            node.text = val;
-            render();
+        // Image sync
+        const imgWrap = el.querySelector('.node-image-wrap');
+        const imgEl = el.querySelector('.node-image');
+        if (node.image) {
+          if (imgEl.src !== node.image) {
+            imgEl.onload = () => relayoutOnly();
+            imgEl.src = node.image;
           }
-        };
+          imgWrap.classList.remove('hidden');
+        } else {
+          imgWrap.classList.add('hidden');
+          imgEl.removeAttribute('src');
+        }
 
-        textEl.onmousedown = (e) => e.stopPropagation();
-        textEl.ontouchstart = (e) => e.stopPropagation();
+        // Text sync (preserve active focus)
+        const textEl = el.querySelector('.node-text');
+        const sizerEl = el.querySelector('.node-sizer');
+        textEl.style.color = node.textColor || '#1e293b';
+        if (!skipActiveInputSync && document.activeElement !== textEl) {
+          textEl.value = node.text || '';
+        }
+        syncTextareaDimensions(textEl, sizerEl);
       });
 
       // Remove obsolete nodes
@@ -373,6 +494,27 @@
       });
 
       // STEP 2: Position & Orthogonal Connectors Calculation
+      relayoutOnly(connections, allNodes);
+      lucide.createIcons();
+      updateRibbonState();
+      saveToStorage();
+    }
+
+    function relayoutOnly(precollectedConnections = null, precollectedNodes = null) {
+      const edgeLabelsContainer = document.getElementById('edgeLabelsContainer');
+      const svgLayer = document.getElementById('svgLayer');
+
+      const allNodes = precollectedNodes || [];
+      const connections = precollectedConnections || [];
+      if (!precollectedNodes) {
+        function collect(node, parent) {
+          allNodes.push(node);
+          if (parent) connections.push({ parent, child: node });
+          if (node.children) node.children.forEach(c => collect(c, node));
+        }
+        collect(treeData, null);
+      }
+
       requestAnimationFrame(() => {
         measureSubtrees(treeData);
         positionNodes(treeData, 0, 40);
@@ -388,7 +530,12 @@
         // Draw Lines & Branch Text Labels
         const defs = svgLayer.querySelector('defs').outerHTML;
         svgLayer.innerHTML = defs;
-        edgeLabelsContainer.innerHTML = '';
+
+        const existingEdgeInputs = new Map();
+        edgeLabelsContainer.querySelectorAll('.edge-label-wrap').forEach(w => {
+          existingEdgeInputs.set(w.dataset.childId, w);
+        });
+        const activeEdgeChildIds = new Set();
 
         connections.forEach(({ parent, child }) => {
           const pEl = document.getElementById(parent.id);
@@ -411,33 +558,60 @@
           path.setAttribute('marker-end', 'url(#arrowhead)');
           svgLayer.appendChild(path);
 
-          // Arrow Line Text Label Element
-          const labelWrapper = document.createElement('div');
-          labelWrapper.className = 'absolute transform -translate-x-1/2 -translate-y-1/2 z-10';
-          labelWrapper.style.left = `${x2}px`;
-          labelWrapper.style.top = `${midY}px`;
+          // 分岐が2つ以上ある場合のみ、横向き矢印の上に枠なしの小さめラベルを表示
+          if (parent.children && parent.children.length >= 2) {
+            activeEdgeChildIds.add(child.id);
+            let labelWrapper = existingEdgeInputs.get(child.id);
+            if (!labelWrapper) {
+              labelWrapper = document.createElement('div');
+              labelWrapper.dataset.childId = child.id;
+              labelWrapper.className = 'edge-label-wrap absolute transform -translate-x-1/2 -translate-y-full z-10 pb-0.5';
 
-          const labelInput = document.createElement('input');
-          labelInput.type = 'text';
-          labelInput.value = child.edgeLabel || '';
-          labelInput.placeholder = '+ラベル';
-          labelInput.className = 'text-[10px] px-1.5 py-0.5 bg-white border border-slate-300 rounded shadow-xs text-center outline-none focus:ring-1 focus:ring-indigo-500 text-slate-600 font-medium max-w-[80px] transition-all hover:border-slate-400 placeholder:text-slate-300';
-          
-          labelInput.onfocus = () => selectNode(child.id);
-          labelInput.onchange = (e) => {
-            child.edgeLabel = e.target.value.trim();
-            render();
-          };
-          labelInput.onmousedown = (e) => e.stopPropagation();
-          labelInput.ontouchstart = (e) => e.stopPropagation();
+              const labelInput = document.createElement('input');
+              labelInput.type = 'text';
+              labelInput.placeholder = '分岐名';
+              labelInput.className = 'node-input text-[10px] bg-transparent border-0 text-center outline-none focus:bg-white/90 focus:ring-1 focus:ring-indigo-400 rounded px-1 text-slate-700 font-medium w-16 placeholder:text-slate-400';
 
-          labelWrapper.appendChild(labelInput);
-          edgeLabelsContainer.appendChild(labelWrapper);
+              labelInput.addEventListener('focus', () => {
+                if (selectedNodeId !== child.id) {
+                  selectedNodeId = child.id;
+                  document.querySelectorAll('.flow-node').forEach(n => n.classList.remove('selected-node', 'shadow-md'));
+                  const targetNodeEl = document.getElementById(child.id);
+                  if (targetNodeEl) targetNodeEl.classList.add('selected-node', 'shadow-md');
+                  updateRibbonState();
+                }
+              });
+
+              labelInput.addEventListener('input', (e) => {
+                const targetChild = findNode(treeData, child.id);
+                if (targetChild) {
+                  targetChild.edgeLabel = e.target.value;
+                  const ribbonEdge = document.getElementById('ribbonEdgeLabelInput');
+                  if (selectedNodeId === child.id && document.activeElement !== ribbonEdge) {
+                    ribbonEdge.value = e.target.value;
+                  }
+                  saveToStorage();
+                }
+              });
+
+              labelWrapper.appendChild(labelInput);
+              edgeLabelsContainer.appendChild(labelWrapper);
+            }
+
+            const midX = (x1 + x2) / 2;
+            labelWrapper.style.left = `${midX}px`;
+            labelWrapper.style.top = `${midY}px`;
+
+            const inputEl = labelWrapper.querySelector('input');
+            if (document.activeElement !== inputEl) {
+              inputEl.value = child.edgeLabel || '';
+            }
+          }
         });
 
-        lucide.createIcons();
-        updateRibbonState();
-        saveToStorage();
+        existingEdgeInputs.forEach((el, childId) => {
+          if (!activeEdgeChildIds.has(childId)) el.remove();
+        });
       });
     }
 
@@ -453,7 +627,9 @@
       const btnAdd = document.getElementById('btnRibbonAddChild');
       const btnDel = document.getElementById('btnRibbonDeleteNode');
       const bgPicker = document.getElementById('ribbonBgColorPicker');
+      const bgHex = document.getElementById('ribbonBgHex');
       const textPicker = document.getElementById('ribbonTextColorPicker');
+      const textHex = document.getElementById('ribbonTextHex');
       const lblImg = document.getElementById('lblRibbonImage');
       const fileInput = document.getElementById('ribbonFileInput');
       const btnRemoveImg = document.getElementById('btnRibbonRemoveImage');
@@ -464,11 +640,17 @@
         btnAdd.disabled = false;
         btnDel.disabled = (selectedNode.id === treeData.id);
         bgPicker.disabled = false;
+        bgHex.disabled = false;
         textPicker.disabled = false;
+        textHex.disabled = false;
         fileInput.disabled = false;
 
-        bgPicker.value = selectedNode.bgColor || '#ffffff';
-        textPicker.value = selectedNode.textColor || '#1e293b';
+        const bgVal = selectedNode.bgColor || '#ffffff';
+        const txtVal = selectedNode.textColor || '#1e293b';
+        bgPicker.value = bgVal;
+        if (document.activeElement !== bgHex) bgHex.value = bgVal;
+        textPicker.value = txtVal;
+        if (document.activeElement !== textHex) textHex.value = txtVal;
 
         lblImg.classList.remove('opacity-40', 'pointer-events-none');
 
@@ -477,11 +659,13 @@
         } else {
           btnRemoveImg.classList.add('hidden');
         }
-
-        // Branch Edge Label input binding (available if not root)
-        if (selectedNode.id !== treeData.id) {
+        // Branch Edge Label input binding (available if not root and parent has 2+ children)
+        const parentNode = findParentNode(treeData, selectedNode.id);
+        if (parentNode && parentNode.children && parentNode.children.length >= 2) {
           branchBox.classList.remove('hidden');
-          edgeInput.value = selectedNode.edgeLabel || '';
+          if (document.activeElement !== edgeInput) {
+            edgeInput.value = selectedNode.edgeLabel || '';
+          }
         } else {
           branchBox.classList.add('hidden');
         }
@@ -489,7 +673,9 @@
         btnAdd.disabled = true;
         btnDel.disabled = true;
         bgPicker.disabled = true;
+        bgHex.disabled = true;
         textPicker.disabled = true;
+        textHex.disabled = true;
         fileInput.disabled = true;
         lblImg.classList.add('opacity-40', 'pointer-events-none');
         btnRemoveImg.classList.add('hidden');
@@ -504,13 +690,15 @@
       if (parent) {
         if (!parent.children) parent.children = [];
         const newNodeId = generateId();
+        
+        // 親（分岐元）ノードの色やスタイルを継承
         parent.children.push({
           id: newNodeId,
-          text: '新規項目',
-          bgColor: '#ffffff',
-          textColor: '#1e293b',
+          text: DEFAULT_NEW_TEXT,
+          bgColor: parent.bgColor || '#ffffff',
+          textColor: parent.textColor || '#1e293b',
           image: '',
-          edgeLabel: parent.children.length === 0 ? 'はい' : 'いいえ',
+          edgeLabel: parent.children.length === 0 ? 'はい' : (parent.children.length === 1 ? 'いいえ' : ''),
           children: []
         });
         selectedNodeId = newNodeId;
@@ -521,16 +709,50 @@
 
     document.getElementById('btnRibbonDeleteNode').onclick = () => {
       if (!selectedNodeId || selectedNodeId === treeData.id) return;
-      deleteNode(treeData, selectedNodeId);
-      selectedNodeId = treeData.id;
-      render();
-      showToast('ノードを削除しました');
+      const targetNode = findNode(treeData, selectedNodeId);
+      const parentNode = findParentNode(treeData, selectedNodeId);
+      if (!targetNode) return;
+
+      const performDelete = () => {
+        deleteNode(treeData, targetNode.id);
+        selectedNodeId = parentNode ? parentNode.id : treeData.id;
+        render();
+        showToast('ノードを削除しました');
+      };
+
+      if (isBranchEditedOrHasChildren(targetNode, parentNode)) {
+        openConfirmModal(
+          '分岐の削除確認',
+          'この分岐は文字・画像・色が編集されているか、配下に別の分岐が含まれています。削除してもよろしいですか？',
+          '削除する',
+          performDelete
+        );
+      } else {
+        performDelete();
+      }
     };
+
+    function normalizeHex(val) {
+      let v = val.trim();
+      if (!v.startsWith('#')) v = '#' + v;
+      return /^#[0-9A-Fa-f]{6}$/.test(v) ? v.toLowerCase() : null;
+    }
 
     document.getElementById('ribbonBgColorPicker').oninput = (e) => {
       const node = findNode(treeData, selectedNodeId);
       if (node) {
         node.bgColor = e.target.value;
+        document.getElementById('ribbonBgHex').value = e.target.value;
+        render();
+      }
+    };
+
+    document.getElementById('ribbonBgHex').oninput = (e) => {
+      const hex = normalizeHex(e.target.value);
+      const node = findNode(treeData, selectedNodeId);
+      if (hex && node) {
+        node.bgColor = hex;
+        document.getElementById('ribbonBgColorPicker').value = hex;
         render();
       }
     };
@@ -539,6 +761,17 @@
       const node = findNode(treeData, selectedNodeId);
       if (node) {
         node.textColor = e.target.value;
+        document.getElementById('ribbonTextHex').value = e.target.value;
+        render();
+      }
+    };
+
+    document.getElementById('ribbonTextHex').oninput = (e) => {
+      const hex = normalizeHex(e.target.value);
+      const node = findNode(treeData, selectedNodeId);
+      if (hex && node) {
+        node.textColor = hex;
+        document.getElementById('ribbonTextColorPicker').value = hex;
         render();
       }
     };
@@ -569,14 +802,25 @@
     document.getElementById('ribbonEdgeLabelInput').oninput = (e) => {
       const node = findNode(treeData, selectedNodeId);
       if (node) {
-        node.edgeLabel = e.target.value.trim();
-        render();
+        node.edgeLabel = e.target.value;
+        relayoutOnly();
+        saveToStorage();
       }
     };
 
     document.getElementById('canvasBgPicker').oninput = (e) => {
       canvasBgColor = e.target.value;
+      document.getElementById('canvasBgHex').value = e.target.value;
       render();
+    };
+
+    document.getElementById('canvasBgHex').oninput = (e) => {
+      const hex = normalizeHex(e.target.value);
+      if (hex) {
+        canvasBgColor = hex;
+        document.getElementById('canvasBgPicker').value = hex;
+        render();
+      }
     };
 
     // Helper utilities
@@ -591,6 +835,16 @@
           const res = findNode(child, id);
           if (res) return res;
         }
+      }
+      return null;
+    }
+
+    function findParentNode(parent, childId) {
+      if (!parent.children) return null;
+      for (let child of parent.children) {
+        if (child.id === childId) return parent;
+        const res = findParentNode(child, childId);
+        if (res) return res;
       }
       return null;
     }
@@ -629,23 +883,27 @@
       updateTransform();
     }
 
-    viewport.onpointerdown = (e) => {
-      if (e.target.closest('.flow-node') || e.target.closest('input')) return;
+    function isInteractiveTarget(target) {
+      return Boolean(target.closest('.flow-node, input, textarea, button, label, [contenteditable="true"]'));
+    }
+
+    viewport.addEventListener('pointerdown', (e) => {
+      if (isInteractiveTarget(e.target)) return;
       isDragging = true;
       startX = e.clientX - panX;
       startY = e.clientY - panY;
-    };
+    });
 
-    window.onpointermove = (e) => {
+    window.addEventListener('pointermove', (e) => {
       if (!isDragging) return;
       panX = e.clientX - startX;
       panY = e.clientY - startY;
       updateTransform();
-    };
+    });
 
-    window.onpointerup = () => { isDragging = false; };
+    window.addEventListener('pointerup', () => { isDragging = false; });
 
-    viewport.onwheel = (e) => {
+    viewport.addEventListener('wheel', (e) => {
       e.preventDefault();
       const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
       const newZoom = Math.min(Math.max(0.3, zoomLevel * zoomFactor), 2.5);
@@ -659,21 +917,26 @@
 
       zoomLevel = newZoom;
       updateTransform();
-    };
+    }, { passive: false });
 
     document.getElementById('btnZoomIn').onclick = () => { zoomLevel = Math.min(2.5, zoomLevel * 1.15); updateTransform(); };
     document.getElementById('btnZoomOut').onclick = () => { zoomLevel = Math.max(0.3, zoomLevel / 1.15); updateTransform(); };
     document.getElementById('btnResetZoom').onclick = centerView;
 
     document.getElementById('btnResetData').onclick = () => {
-      if (confirm('すべてのデータが初期化されます。よろしいですか？')) {
-        treeData = JSON.parse(JSON.stringify(defaultData));
-        canvasBgColor = '#f1f5f9';
-        selectedNodeId = treeData.id;
-        render();
-        centerView();
-        showToast('リセットしました');
-      }
+      openConfirmModal(
+        'データの初期化',
+        'すべてのフローチャートデータが初期状態に戻ります。よろしいですか？',
+        '初期化する',
+        () => {
+          treeData = JSON.parse(JSON.stringify(defaultData));
+          canvasBgColor = '#f1f5f9';
+          selectedNodeId = treeData.id;
+          render();
+          centerView();
+          showToast('リセットしました');
+        }
+      );
     };
 
     // PNG Download Engine
@@ -705,6 +968,15 @@
         clone.classList.remove('selected-node');
         clone.style.left = `${left}px`;
         clone.style.top = `${top}px`;
+        const origTa = el.querySelector('textarea');
+        const cloneTa = clone.querySelector('textarea');
+        if (origTa && cloneTa) {
+          const textDiv = document.createElement('div');
+          textDiv.className = 'text-xs font-medium leading-normal text-center whitespace-pre-wrap break-words';
+          textDiv.style.color = origTa.style.color;
+          textDiv.textContent = origTa.value;
+          cloneTa.replaceWith(textDiv);
+        }
         nodesHtml += new XMLSerializer().serializeToString(clone);
       });
 
