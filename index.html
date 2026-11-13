@@ -15,6 +15,8 @@
     }
     #viewport {
       touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
     .node-input {
       touch-action: auto;
@@ -43,7 +45,7 @@
     }
   </style>
 </head>
-<body class="bg-slate-100 text-slate-800 h-screen w-screen overflow-hidden flex flex-col">
+<body class="bg-slate-100 text-slate-800 h-screen w-screen overflow-hidden flex flex-col select-none">
 
   <!-- Header / Toolbar Ribbon -->
   <header class="bg-white border-b border-slate-200 px-3 md:px-6 py-2 flex flex-col gap-2 z-20 shadow-sm flex-shrink-0">
@@ -247,7 +249,9 @@
     let panX = 0, panY = 0;
     let isDragging = false;
     let startX = 0, startY = 0;
-    let initialPinchDistance = null;
+    const activePointers = new Map();
+    let lastPinchDist = null;
+    let lastPinchCenter = null;
 
     // TIGHT COMPACT LAYOUT CONSTANTS
     const GAP_X = 16; // Horizontal gap between siblings
@@ -884,24 +888,88 @@
     }
 
     function isInteractiveTarget(target) {
-      return Boolean(target.closest('.flow-node, input, textarea, button, label, [contenteditable="true"]'));
+      return Boolean(target.closest('input, textarea, button, label, [contenteditable="true"]'));
+    }
+
+    function getPinchMetrics() {
+      const pts = Array.from(activePointers.values());
+      const dx = pts[0].clientX - pts[1].clientX;
+      const dy = pts[0].clientY - pts[1].clientY;
+      return {
+        dist: Math.hypot(dx, dy),
+        centerX: (pts[0].clientX + pts[1].clientX) / 2,
+        centerY: (pts[0].clientY + pts[1].clientY) / 2
+      };
     }
 
     viewport.addEventListener('pointerdown', (e) => {
       if (isInteractiveTarget(e.target)) return;
-      isDragging = true;
-      startX = e.clientX - panX;
-      startY = e.clientY - panY;
+      activePointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+      if (activePointers.size === 1) {
+        isDragging = true;
+        startX = e.clientX - panX;
+        startY = e.clientY - panY;
+        lastPinchDist = null;
+        lastPinchCenter = null;
+      } else if (activePointers.size >= 2) {
+        isDragging = false;
+        const { dist, centerX, centerY } = getPinchMetrics();
+        lastPinchDist = dist;
+        lastPinchCenter = { x: centerX, y: centerY };
+      }
     });
 
     window.addEventListener('pointermove', (e) => {
-      if (!isDragging) return;
-      panX = e.clientX - startX;
-      panY = e.clientY - startY;
-      updateTransform();
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
+
+      if (activePointers.size >= 2) {
+        const { dist, centerX, centerY } = getPinchMetrics();
+        if (lastPinchDist && lastPinchDist > 0 && lastPinchCenter) {
+          const rect = viewport.getBoundingClientRect();
+          const scaleFactor = dist / lastPinchDist;
+          const newZoom = Math.min(Math.max(0.3, zoomLevel * scaleFactor), 2.5);
+
+          const focalX = centerX - rect.left;
+          const focalY = centerY - rect.top;
+          const prevFocalX = lastPinchCenter.x - rect.left;
+          const prevFocalY = lastPinchCenter.y - rect.top;
+
+          panX = focalX - (prevFocalX - panX) * (newZoom / zoomLevel);
+          panY = focalY - (prevFocalY - panY) * (newZoom / zoomLevel);
+          zoomLevel = newZoom;
+          updateTransform();
+        }
+        lastPinchDist = dist;
+        lastPinchCenter = { x: centerX, y: centerY };
+      } else if (activePointers.size === 1 && isDragging) {
+        panX = e.clientX - startX;
+        panY = e.clientY - startY;
+        updateTransform();
+      }
     });
 
-    window.addEventListener('pointerup', () => { isDragging = false; });
+    function handlePointerRelease(e) {
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.delete(e.pointerId);
+
+      if (activePointers.size === 1) {
+        const remaining = Array.from(activePointers.values())[0];
+        isDragging = true;
+        startX = remaining.clientX - panX;
+        startY = remaining.clientY - panY;
+        lastPinchDist = null;
+        lastPinchCenter = null;
+      } else if (activePointers.size === 0) {
+        isDragging = false;
+        lastPinchDist = null;
+        lastPinchCenter = null;
+      }
+    }
+
+    window.addEventListener('pointerup', handlePointerRelease);
+    window.addEventListener('pointercancel', handlePointerRelease);
 
     viewport.addEventListener('wheel', (e) => {
       e.preventDefault();
