@@ -158,7 +158,7 @@
       <svg id="svgLayer" class="absolute left-0 top-0 pointer-events-none" style="overflow: visible;">
         <defs>
           <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 1 L 10 5 L 0 9 z" fill="#64748b" />
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#1e293b" />
           </marker>
         </defs>
       </svg>
@@ -209,7 +209,6 @@
       textColor: '#ffffff',
       image: '',
       edgeLabel: '',
-      edgeLabelColor: '#334155',
       children: [
         {
           id: 'node-1',
@@ -218,7 +217,6 @@
           textColor: '#1e293b',
           image: '',
           edgeLabel: '',
-          edgeLabelColor: '#334155',
           children: [
             {
               id: 'node-1-1',
@@ -227,7 +225,6 @@
               textColor: '#1e293b',
               image: '',
               edgeLabel: 'はい',
-              edgeLabelColor: '#334155',
               children: []
             },
             {
@@ -237,7 +234,6 @@
               textColor: '#1e293b',
               image: '',
               edgeLabel: 'いいえ',
-              edgeLabelColor: '#334155',
               children: []
             }
           ]
@@ -249,7 +245,6 @@
     let treeData = null;
     let canvasBgColor = '#f1f5f9';
     let selectedNodeId = 'node-root';
-    let selectedEdgeChildId = null;
     let zoomLevel = 1.0;
     let panX = 0, panY = 0;
     let isDragging = false;
@@ -463,7 +458,7 @@
         }
 
         // Selection Highlight
-        if (node.id === selectedNodeId && !selectedEdgeChildId) {
+        if (node.id === selectedNodeId) {
           el.classList.add('selected-node', 'shadow-md');
         } else {
           el.classList.remove('selected-node', 'shadow-md');
@@ -537,8 +532,15 @@
         });
 
         // Draw Lines & Branch Text Labels
-        const defs = svgLayer.querySelector('defs').outerHTML;
-        svgLayer.innerHTML = defs;
+        const contrastColor = getContrastColorForBg(canvasBgColor);
+        const isDarkBg = contrastColor === '#ffffff';
+        svgLayer.innerHTML = `
+          <defs>
+            <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="${contrastColor}" />
+            </marker>
+          </defs>
+        `;
 
         const existingEdgeInputs = new Map();
         edgeLabelsContainer.querySelectorAll('.edge-label-wrap').forEach(w => {
@@ -561,7 +563,7 @@
 
           const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           path.setAttribute('d', pathD);
-          path.setAttribute('stroke', '#64748b');
+          path.setAttribute('stroke', contrastColor);
           path.setAttribute('stroke-width', '1.5');
           path.setAttribute('fill', 'none');
           path.setAttribute('marker-end', 'url(#arrowhead)');
@@ -579,24 +581,16 @@
               const labelInput = document.createElement('input');
               labelInput.type = 'text';
               labelInput.placeholder = '分岐名';
-              labelInput.className = 'node-input text-[10px] bg-transparent border-0 text-center outline-none focus:bg-white/90 focus:ring-1 focus:ring-indigo-400 rounded px-1 font-medium w-16 placeholder:text-slate-400';
-
-              const activateEdgeSelection = () => {
-                selectedNodeId = child.id;
-                selectedEdgeChildId = child.id;
-                document.querySelectorAll('.flow-node').forEach(n => n.classList.remove('selected-node', 'shadow-md'));
-                document.querySelectorAll('.edge-label-wrap input').forEach(inp => inp.classList.remove('ring-1', 'ring-indigo-500', 'bg-white/90'));
-                labelInput.classList.add('ring-1', 'ring-indigo-500', 'bg-white/90');
-                updateRibbonState();
-              };
-
-              labelInput.addEventListener('click', (e) => {
-                e.stopPropagation();
-                activateEdgeSelection();
-              });
+              labelInput.className = 'node-input text-[10px] bg-transparent border-0 text-center outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1 font-medium w-16';
 
               labelInput.addEventListener('focus', () => {
-                activateEdgeSelection();
+                if (selectedNodeId !== child.id) {
+                  selectedNodeId = child.id;
+                  document.querySelectorAll('.flow-node').forEach(n => n.classList.remove('selected-node', 'shadow-md'));
+                  const targetNodeEl = document.getElementById(child.id);
+                  if (targetNodeEl) targetNodeEl.classList.add('selected-node', 'shadow-md');
+                  updateRibbonState();
+                }
               });
 
               labelInput.addEventListener('input', (e) => {
@@ -620,12 +614,11 @@
             labelWrapper.style.top = `${midY}px`;
 
             const inputEl = labelWrapper.querySelector('input');
-            inputEl.style.color = child.edgeLabelColor || '#334155';
-            if (selectedEdgeChildId === child.id) {
-              inputEl.classList.add('ring-1', 'ring-indigo-500', 'bg-white/90');
-            } else {
-              inputEl.classList.remove('ring-1', 'ring-indigo-500', 'bg-white/90');
-            }
+            inputEl.style.color = contrastColor;
+            inputEl.classList.toggle('focus:bg-slate-800/90', isDarkBg);
+            inputEl.classList.toggle('focus:bg-white/90', !isDarkBg);
+            inputEl.classList.toggle('placeholder:text-slate-300', isDarkBg);
+            inputEl.classList.toggle('placeholder:text-slate-500', !isDarkBg);
             if (document.activeElement !== inputEl) {
               inputEl.value = child.edgeLabel || '';
             }
@@ -641,13 +634,11 @@
     // --- NODE SELECTION & RIBBON STATE CONTROL ---
     function selectNode(id) {
       selectedNodeId = id;
-      selectedEdgeChildId = null;
       render();
     }
 
     function updateRibbonState() {
       const selectedNode = findNode(treeData, selectedNodeId);
-      const selectedEdgeNode = selectedEdgeChildId ? findNode(treeData, selectedEdgeChildId) : null;
 
       const btnAdd = document.getElementById('btnRibbonAddChild');
       const btnDel = document.getElementById('btnRibbonDeleteNode');
@@ -660,28 +651,6 @@
       const btnRemoveImg = document.getElementById('btnRibbonRemoveImage');
       const branchBox = document.getElementById('branchLabelBox');
       const edgeInput = document.getElementById('ribbonEdgeLabelInput');
-
-      if (selectedEdgeNode) {
-        btnAdd.disabled = true;
-        btnDel.disabled = true;
-        bgPicker.disabled = true;
-        bgHex.disabled = true;
-        textPicker.disabled = false;
-        textHex.disabled = false;
-        fileInput.disabled = true;
-        lblImg.classList.add('opacity-40', 'pointer-events-none');
-        btnRemoveImg.classList.add('hidden');
-
-        const edgeTxtVal = selectedEdgeNode.edgeLabelColor || '#334155';
-        textPicker.value = edgeTxtVal;
-        if (document.activeElement !== textHex) textHex.value = edgeTxtVal;
-
-        branchBox.classList.remove('hidden');
-        if (document.activeElement !== edgeInput) {
-          edgeInput.value = selectedEdgeNode.edgeLabel || '';
-        }
-        return;
-      }
 
       if (selectedNode) {
         btnAdd.disabled = false;
@@ -746,11 +715,9 @@
           textColor: parent.textColor || '#1e293b',
           image: '',
           edgeLabel: parent.children.length === 0 ? 'はい' : (parent.children.length === 1 ? 'いいえ' : ''),
-          edgeLabelColor: '#334155',
           children: []
         });
         selectedNodeId = newNodeId;
-        selectedEdgeChildId = null;
         render();
         showToast('分岐を追加しました');
       }
@@ -787,6 +754,15 @@
       return /^#[0-9A-Fa-f]{6}$/.test(v) ? v.toLowerCase() : null;
     }
 
+    function getContrastColorForBg(hexColor) {
+      const hex = normalizeHex(hexColor) || '#f1f5f9';
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      return luminance > 0.5 ? '#1e293b' : '#ffffff';
+    }
+
     document.getElementById('ribbonBgColorPicker').oninput = (e) => {
       const node = findNode(treeData, selectedNodeId);
       if (node) {
@@ -807,16 +783,6 @@
     };
 
     document.getElementById('ribbonTextColorPicker').oninput = (e) => {
-      if (selectedEdgeChildId) {
-        const edgeNode = findNode(treeData, selectedEdgeChildId);
-        if (edgeNode) {
-          edgeNode.edgeLabelColor = e.target.value;
-          document.getElementById('ribbonTextHex').value = e.target.value;
-          relayoutOnly();
-          saveToStorage();
-        }
-        return;
-      }
       const node = findNode(treeData, selectedNodeId);
       if (node) {
         node.textColor = e.target.value;
@@ -827,16 +793,6 @@
 
     document.getElementById('ribbonTextHex').oninput = (e) => {
       const hex = normalizeHex(e.target.value);
-      if (selectedEdgeChildId) {
-        const edgeNode = findNode(treeData, selectedEdgeChildId);
-        if (hex && edgeNode) {
-          edgeNode.edgeLabelColor = hex;
-          document.getElementById('ribbonTextColorPicker').value = hex;
-          relayoutOnly();
-          saveToStorage();
-        }
-        return;
-      }
       const node = findNode(treeData, selectedNodeId);
       if (hex && node) {
         node.textColor = hex;
@@ -869,8 +825,7 @@
     };
 
     document.getElementById('ribbonEdgeLabelInput').oninput = (e) => {
-      const targetId = selectedEdgeChildId || selectedNodeId;
-      const node = findNode(treeData, targetId);
+      const node = findNode(treeData, selectedNodeId);
       if (node) {
         node.edgeLabel = e.target.value;
         relayoutOnly();
@@ -1115,19 +1070,20 @@
       });
 
       const svgPaths = document.getElementById('svgLayer').querySelectorAll('path');
+      const contrastColor = getContrastColorForBg(canvasBgColor);
       let pathsSvg = '';
       svgPaths.forEach(p => {
         const d = p.getAttribute('d').replace(/([M L])\s*(-?\d+\.?\d*)\s*(-?\d+\.?\d*)/g, (_, cmd, x, y) => {
           return `${cmd} ${parseFloat(x) - minX} ${parseFloat(y) - minY}`;
         });
-        pathsSvg += `<path d="${d}" stroke="#64748b" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"/>`;
+        pathsSvg += `<path d="${d}" stroke="${contrastColor}" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"/>`;
       });
 
       const svgStr = `
         <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
           <defs>
             <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="#64748b" />
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="${contrastColor}" />
             </marker>
           </defs>
           <rect width="100%" height="100%" fill="${canvasBgColor}"/>
