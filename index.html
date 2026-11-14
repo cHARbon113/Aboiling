@@ -275,6 +275,35 @@
     const GAP_X = 24;
     const GAP_Y = 56;
     const DEFAULT_NEW_TEXT = '';
+    const SESSION_STATE_PREFIX = 'FLOWCHART_STATE_V4:';
+
+    // --- SESSION PERSISTENCE (Without localStorage) ---
+    function saveWorkState() {
+      try {
+        const payload = JSON.stringify({
+          tree: treeData,
+          canvasBg: canvasBgColor,
+          selectedId: selectedNodeId
+        });
+        window.name = SESSION_STATE_PREFIX + payload;
+      } catch (e) {}
+    }
+
+    function loadWorkState() {
+      try {
+        if (typeof window.name === 'string' && window.name.startsWith(SESSION_STATE_PREFIX)) {
+          const raw = window.name.slice(SESSION_STATE_PREFIX.length);
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.tree) {
+            treeData = parsed.tree;
+            canvasBgColor = parsed.canvasBg || '#f1f5f9';
+            selectedNodeId = parsed.selectedId || treeData.id;
+            return true;
+          }
+        }
+      } catch (e) {}
+      return false;
+    }
 
     // --- CUSTOM CONFIRM DIALOG ---
     let confirmCallback = null;
@@ -327,15 +356,17 @@
       if (!textarea || !sizer) return;
       const val = textarea.value || textarea.placeholder || ' ';
       const lines = val.split('\n');
-      let maxLineW = 60;
+      let maxLineW = 64;
       lines.forEach(line => {
         sizer.textContent = line || ' ';
-        const w = Math.ceil(sizer.getBoundingClientRect().width);
+        const rectW = sizer.getBoundingClientRect().width;
+        const scrollW = sizer.scrollWidth;
+        const w = Math.ceil(Math.max(rectW, scrollW));
         if (w > maxLineW) maxLineW = w;
       });
-      textarea.style.width = `${maxLineW + 16}px`;
+      textarea.style.width = `${maxLineW + 24}px`;
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.max(20, lines.length * 18)}px`;
+      textarea.style.height = `${Math.max(20, lines.length * 19)}px`;
     }
 
     // Auto-size branch label input to fit its text so it never clips
@@ -343,7 +374,7 @@
       if (!inputEl || !sizerEl) return;
       const val = inputEl.value || inputEl.placeholder || ' ';
       sizerEl.textContent = val;
-      const measuredW = Math.max(44, Math.ceil(sizerEl.scrollWidth || sizerEl.getBoundingClientRect().width) + 20);
+      const measuredW = Math.max(48, Math.ceil(Math.max(sizerEl.scrollWidth, sizerEl.getBoundingClientRect().width)) + 22);
       inputEl.style.width = `${measuredW}px`;
     }
 
@@ -453,12 +484,12 @@
               <img class="node-image max-w-[200px] max-h-24 object-contain rounded" alt="ノード画像">
             </div>
             <div class="px-3 py-1.5 relative flex items-center justify-center">
-              <span class="node-sizer invisible fixed pointer-events-none whitespace-pre text-xs font-bold leading-[18px]" aria-hidden="true"></span>
+              <span class="node-sizer invisible fixed left-0 top-0 pointer-events-none whitespace-pre text-xs font-bold leading-[19px] tracking-normal" style="font-family: inherit;" aria-hidden="true"></span>
               <textarea
                 rows="1"
                 wrap="off"
                 placeholder="文字を入力"
-                class="node-input node-text bg-transparent border-0 resize-none overflow-hidden whitespace-pre text-xs font-bold leading-[18px] outline-none text-center p-0 m-0 focus:ring-0 placeholder:opacity-50"
+                class="node-input node-text bg-transparent border-0 resize-none overflow-hidden whitespace-pre text-xs font-bold leading-[19px] tracking-normal outline-none text-center p-0 m-0 focus:ring-0 placeholder:opacity-50"
               ></textarea>
             </div>
           `;
@@ -489,11 +520,14 @@
               currentNode.text = e.target.value;
               syncTextareaDimensions(textEl, sizerEl);
               relayoutOnly();
+              saveWorkState();
             }
           });
 
           textEl.addEventListener('blur', () => {
+            syncTextareaDimensions(textEl, sizerEl);
             relayoutOnly();
+            saveWorkState();
           });
         }
 
@@ -536,6 +570,7 @@
       relayoutOnly(connections, allNodes);
       lucide.createIcons();
       updateRibbonState();
+      saveWorkState();
     }
 
     function applyLayoutPass(connections, allNodes) {
@@ -632,6 +667,7 @@
                 if (selectedNodeId === child.id && document.activeElement !== ribbonEdge) {
                   ribbonEdge.value = e.target.value;
                 }
+                saveWorkState();
               }
             });
 
@@ -887,6 +923,7 @@
       if (node) {
         node.edgeLabel = e.target.value;
         relayoutOnly();
+        saveWorkState();
       }
     };
 
@@ -1073,6 +1110,7 @@
           treeData = JSON.parse(JSON.stringify(defaultData));
           canvasBgColor = '#f1f5f9';
           selectedNodeId = treeData.id;
+          window.name = '';
           render();
           centerView();
           showToast('リセットしました');
@@ -1334,10 +1372,12 @@
     };
 
     window.onload = () => {
-      treeData = JSON.parse(JSON.stringify(defaultData));
+      if (!loadWorkState()) {
+        treeData = JSON.parse(JSON.stringify(defaultData));
+      }
       render();
       centerView();
-      setTimeout(() => render(), 50);
+      setTimeout(() => render(), 60);
     };
   </script>
 </body>
