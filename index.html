@@ -170,6 +170,31 @@
     <span id="toastMsg">メッセージ</span>
   </div>
 
+  <!-- Export Image Preview Modal (Fallback for iOS / Large Diagrams) -->
+  <div id="exportModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-lg w-full p-4 flex flex-col gap-3 max-h-[90dvh]">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+        <h3 class="font-bold text-sm text-slate-800">PNG画像プレビュー</h3>
+        <button id="btnCloseExportModal" class="p-1 text-slate-400 hover:text-slate-600 rounded-lg">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <p class="text-[11px] text-slate-500">自動ダウンロードが始まらない場合は、下の画像を長押し（または右クリック）して保存してください。</p>
+      <div class="overflow-auto bg-slate-100 rounded-xl p-2 flex items-center justify-center border border-slate-200 flex-1 min-h-[160px]">
+        <img id="exportedPreviewImg" class="max-w-full max-h-[60dvh] object-contain shadow-sm rounded" alt="書き出しPNGプレビュー">
+      </div>
+      <div class="flex items-center justify-end gap-2 pt-1">
+        <a id="btnManualDownloadLink" download="flowchart.png" class="px-3.5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer">
+          <i data-lucide="download" class="w-3.5 h-3.5"></i>
+          <span>もう一度ダウンロード</span>
+        </a>
+        <button id="btnCloseExportModalFooter" class="px-3.5 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Confirmation Modal Dialog (for Delete & Reset) -->
   <div id="confirmModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-sm w-full p-5 flex flex-col gap-4">
@@ -275,6 +300,14 @@
       if (confirmCallback) confirmCallback();
       closeConfirmModal();
     };
+
+    function closeExportModal() {
+      const modal = document.getElementById('exportModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+    document.getElementById('btnCloseExportModal').onclick = closeExportModal;
+    document.getElementById('btnCloseExportModalFooter').onclick = closeExportModal;
 
     // Check if a node or any descendant has been edited or contains sub-branches
     function isBranchEditedOrHasChildren(node, parentNode) {
@@ -1063,16 +1096,45 @@
         maxY = Math.max(maxY, y + el.offsetHeight);
       });
 
+      // 分岐ラベルの領域もバウンディングボックスに含める
+      document.querySelectorAll('#edgeLabelsContainer > .edge-label-wrap').forEach(wrap => {
+        const cx = parseFloat(wrap.style.left);
+        const cy = parseFloat(wrap.style.top);
+        if (!isNaN(cx) && !isNaN(cy)) {
+          const halfW = (wrap.offsetWidth || 60) / 2;
+          const halfH = (wrap.offsetHeight || 20) / 2;
+          minX = Math.min(minX, cx - halfW);
+          minY = Math.min(minY, cy - halfH);
+          maxX = Math.max(maxX, cx + halfW);
+          maxY = Math.max(maxY, cy + halfH);
+        }
+      });
+
       const pad = 40;
       minX -= pad; minY -= pad; maxX += pad; maxY += pad;
-      const w = Math.ceil(maxX - minX);
-      const h = Math.ceil(maxY - minY);
+      const w = Math.max(100, Math.ceil(maxX - minX));
+      const h = Math.max(100, Math.ceil(maxY - minY));
 
-      const scale = 2;
+      // 要素が多い場合でもブラウザ/iOSのCanvas上限(一辺4096px・面積1600万px)を超えないよう倍率を自動調整
+      const MAX_DIM = 4096;
+      const MAX_AREA = 14000000;
+      let scale = 2;
+      if (w * scale > MAX_DIM || h * scale > MAX_DIM) {
+        scale = Math.min(scale, MAX_DIM / Math.max(w, h));
+      }
+      if ((w * scale) * (h * scale) > MAX_AREA) {
+        scale = Math.min(scale, Math.sqrt(MAX_AREA / (w * h)));
+      }
+      scale = Math.max(0.25, scale);
+
       const canvas = document.createElement('canvas');
-      canvas.width = w * scale;
-      canvas.height = h * scale;
+      canvas.width = Math.max(1, Math.floor(w * scale));
+      canvas.height = Math.max(1, Math.floor(h * scale));
       const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        showToast('描画コンテキストの取得に失敗しました');
+        return;
+      }
       ctx.scale(scale, scale);
 
       // 1. 背景塗りつぶし
@@ -1220,26 +1282,54 @@
         }
       }
 
-      // 5. PNGとしてダウンロード実行
+      // 5. PNGとしてダウンロード実行（失敗時やモバイル環境向けにプレビューモーダルも連携）
+      const filename = `flowchart_${Date.now()}.png`;
+      const finishExport = (hrefUrl, isBlobUrl) => {
+        const previewImg = document.getElementById('exportedPreviewImg');
+        const manualLink = document.getElementById('btnManualDownloadLink');
+        previewImg.src = hrefUrl;
+        manualLink.href = hrefUrl;
+        manualLink.download = filename;
+
+        const a = document.createElement('a');
+        a.download = filename;
+        a.href = hrefUrl;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        // モバイルやiFrame環境で自動ダウンロードが制限される場合に備えプレビューを表示
+        const isMobileOrIframe = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.self !== window.top;
+        if (isMobileOrIframe) {
+          const modal = document.getElementById('exportModal');
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+        } else if (isBlobUrl) {
+          setTimeout(() => URL.revokeObjectURL(hrefUrl), 10000);
+        }
+        showToast('PNGを書き出しました');
+      };
+
       try {
         canvas.toBlob((blob) => {
-          if (!blob) {
-            showToast('PNGの生成に失敗しました');
-            return;
+          if (blob) {
+            const url = URL.createObjectURL(blob);
+            finishExport(url, true);
+          } else {
+            const dataUrl = canvas.toDataURL('image/png');
+            finishExport(dataUrl, false);
           }
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.download = `flowchart_${Date.now()}.png`;
-          a.href = url;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-          showToast('PNGをダウンロードしました');
         }, 'image/png');
       } catch (err) {
         console.error(err);
-        showToast('PNGの書き出しに失敗しました');
+        try {
+          const dataUrl = canvas.toDataURL('image/png');
+          finishExport(dataUrl, false);
+        } catch (fallbackErr) {
+          console.error(fallbackErr);
+          showToast('PNGの書き出しに失敗しました');
+        }
       }
     };
 
