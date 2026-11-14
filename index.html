@@ -600,7 +600,8 @@
           path.setAttribute('marker-end', 'url(#arrowhead)');
           svgLayer.appendChild(path);
 
-          if (parent.children && parent.children.length >= 2) {
+          // 分岐が1つ以上ある場合（ルート以外のすべての接続線）に、各選択肢の真上にある縦矢印の中央にラベルを表示
+          if (parent.children && parent.children.length >= 1) {
             activeEdgeChildIds.add(child.id);
             let labelWrapper = existingEdgeInputs.get(child.id);
             if (!labelWrapper) {
@@ -717,7 +718,7 @@
         }
 
         const parentNode = findParentNode(treeData, selectedNode.id);
-        if (parentNode && parentNode.children && parentNode.children.length >= 2) {
+        if (parentNode && parentNode.children && parentNode.children.length >= 1) {
           branchBox.classList.remove('hidden');
           if (document.activeElement !== edgeInput) {
             edgeInput.value = selectedNode.edgeLabel || '';
@@ -752,7 +753,7 @@
           bgColor: parent.bgColor || '#ffffff',
           textColor: parent.textColor || '#1e293b',
           image: '',
-          edgeLabel: parent.children.length === 0 ? 'はい' : (parent.children.length === 1 ? 'いいえ' : ''),
+          edgeLabel: '',
           children: []
         });
         selectedNodeId = newNodeId;
@@ -1096,20 +1097,27 @@
       nodeElements.forEach(el => {
         const left = parseFloat(el.style.left) - minX;
         const top = parseFloat(el.style.top) - minY;
-        const clone = el.cloneNode(true);
-        clone.classList.remove('selected-node');
-        clone.style.left = `${left}px`;
-        clone.style.top = `${top}px`;
         const origTa = el.querySelector('textarea');
-        const cloneTa = clone.querySelector('textarea');
-        if (origTa && cloneTa) {
-          const textDiv = document.createElement('div');
-          textDiv.className = 'text-xs font-bold leading-normal text-center whitespace-pre';
-          textDiv.style.color = origTa.style.color;
-          textDiv.textContent = origTa.value;
-          cloneTa.replaceWith(textDiv);
+        const origImg = el.querySelector('.node-image');
+        const bgColor = el.style.backgroundColor || '#ffffff';
+        const textColor = el.style.color || '#1e293b';
+        const width = el.offsetWidth;
+        const height = el.offsetHeight;
+
+        let imgSection = '';
+        if (origImg && origImg.src && !el.querySelector('.node-image-wrap').classList.contains('hidden')) {
+          imgSection = `<div style="width:100%; background:rgba(0,0,0,0.05); display:flex; align-items:center; justify-content:center; padding:4px; border-bottom:1px solid rgba(0,0,0,0.05); box-sizing:border-box;"><img src="${origImg.src}" style="max-width:100%; max-height:96px; object-fit:contain; border-radius:4px;"/></div>`;
         }
-        nodesHtml += new XMLSerializer().serializeToString(clone);
+
+        const textVal = origTa ? origTa.value : '';
+        nodesHtml += `
+          <div style="position:absolute; left:${left}px; top:${top}px; width:${width}px; min-height:${height}px; background-color:${bgColor}; color:${textColor}; border:1px solid #cbd5e1; border-radius:8px; box-shadow:0 1px 2px rgba(0,0,0,0.05); display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; font-family:Inter, -apple-system, BlinkMacSystemFont, sans-serif;">
+            ${imgSection}
+            <div style="padding:8px 14px; display:flex; align-items:center; justify-content:center; box-sizing:border-box;">
+              <div style="font-size:12px; font-weight:700; line-height:1.5; text-align:center; white-space:pre; color:${textColor};">${escapeHtml(textVal)}</div>
+            </div>
+          </div>
+        `;
       });
 
       const svgPaths = document.getElementById('svgLayer').querySelectorAll('path');
@@ -1129,7 +1137,7 @@
         if (!inp || !inp.value.trim()) return;
         const left = parseFloat(wrap.style.left) - minX;
         const top = parseFloat(wrap.style.top) - minY;
-        edgeLabelsHtml += `<div style="position:absolute; left:${left}px; top:${top}px; transform:translate(-50%, -50%); padding:2px 6px; border-radius:4px; background-color:${labelBgRgba}; text-align:center; font-size:10px; font-weight:700; color:${contrastColor}; white-space:nowrap;">${escapeHtml(inp.value)}</div>`;
+        edgeLabelsHtml += `<div style="position:absolute; left:${left}px; top:${top}px; transform:translate(-50%, -50%); padding:2px 6px; border-radius:4px; background-color:${labelBgRgba}; text-align:center; font-size:10px; font-weight:700; color:${contrastColor}; white-space:nowrap; font-family:Inter, -apple-system, BlinkMacSystemFont, sans-serif;">${escapeHtml(inp.value)}</div>`;
       });
 
       const svgStr = `
@@ -1143,7 +1151,6 @@
           <g>${pathsSvg}</g>
           <foreignObject width="${w}" height="${h}">
             <div xmlns="http://www.w3.org/1999/xhtml" style="position:relative; width:${w}px; height:${h}px;">
-              <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"/>
               ${nodesHtml}
               ${edgeLabelsHtml}
             </div>
@@ -1152,25 +1159,28 @@
       `;
 
       const img = new Image();
-      const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
+      const svgBase64 = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
 
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = w * 2;
-        canvas.height = h * 2;
-        const ctx = canvas.getContext('2d');
-        ctx.scale(2, 2);
-        ctx.drawImage(img, 0, 0);
-        URL.revokeObjectURL(url);
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = w * 2;
+          canvas.height = h * 2;
+          const ctx = canvas.getContext('2d');
+          ctx.scale(2, 2);
+          ctx.drawImage(img, 0, 0);
 
-        const a = document.createElement('a');
-        a.download = `flowchart_${Date.now()}.png`;
-        a.href = canvas.toDataURL('image/png');
-        a.click();
-        showToast('PNGをダウンロードしました');
+          const a = document.createElement('a');
+          a.download = `flowchart_${Date.now()}.png`;
+          a.href = canvas.toDataURL('image/png');
+          a.click();
+          showToast('PNGをダウンロードしました');
+        } catch (err) {
+          console.error(err);
+          showToast('PNGの書き出しに失敗しました');
+        }
       };
-      img.src = url;
+      img.src = svgBase64;
     };
 
     window.onload = () => {
