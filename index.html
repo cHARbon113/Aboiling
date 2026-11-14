@@ -289,11 +289,19 @@
       return false;
     }
 
+    // Auto-size textarea & hidden sizer so node width/height hugs text cleanly
     function syncTextareaDimensions(textarea, sizer) {
       if (!textarea || !sizer) return;
       const val = textarea.value || textarea.placeholder || ' ';
-      sizer.textContent = val;
-      const measuredW = Math.max(90, Math.ceil(sizer.getBoundingClientRect().width) + 20);
+      // 複数行にも対応し、一番長い行の幅を正確に計測する
+      const lines = val.split('\n');
+      let maxW = 0;
+      lines.forEach(line => {
+        sizer.textContent = line || ' ';
+        const w = sizer.scrollWidth || sizer.getBoundingClientRect().width;
+        if (w > maxW) maxW = w;
+      });
+      const measuredW = Math.max(90, Math.ceil(maxW) + 28);
       textarea.style.width = `${measuredW}px`;
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.max(22, textarea.scrollHeight)}px`;
@@ -303,7 +311,7 @@
       if (!inputEl || !sizerEl) return;
       const val = inputEl.value || inputEl.placeholder || ' ';
       sizerEl.textContent = val;
-      const measuredW = Math.max(44, Math.ceil(sizerEl.getBoundingClientRect().width) + 20);
+      const measuredW = Math.max(44, Math.ceil(sizerEl.scrollWidth || sizerEl.getBoundingClientRect().width) + 24);
       inputEl.style.width = `${measuredW}px`;
     }
 
@@ -424,15 +432,16 @@
         if (!el) {
           el = document.createElement('div');
           el.id = node.id;
-          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center overflow-hidden cursor-pointer group min-w-[90px]';
+          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center cursor-pointer group min-w-[90px] w-max';
           el.innerHTML = `
-            <div class="node-image-wrap w-full bg-black/5 flex items-center justify-center p-1 border-b border-black/5 hidden">
+            <div class="node-image-wrap w-full bg-black/5 flex items-center justify-center p-1 border-b border-black/5 hidden rounded-t-lg overflow-hidden">
               <img class="node-image max-w-full max-h-24 object-contain rounded" alt="ノード画像">
             </div>
             <div class="px-3.5 py-2 relative flex items-center justify-center">
-              <span class="node-sizer invisible fixed pointer-events-none whitespace-pre text-xs font-bold leading-normal" aria-hidden="true"></span>
+              <span class="node-sizer invisible fixed left-0 top-0 pointer-events-none whitespace-pre text-xs font-bold leading-normal" aria-hidden="true"></span>
               <textarea
                 rows="1"
+                wrap="off"
                 placeholder="テキストを入力"
                 class="node-input node-text bg-transparent border-0 resize-none overflow-hidden text-xs font-bold leading-normal outline-none text-center p-0 m-0 focus:ring-0 placeholder:opacity-40 whitespace-pre"
               ></textarea>
@@ -536,7 +545,6 @@
         measureSubtrees(treeData);
         positionNodes(treeData, 0, 60);
 
-        let minX = 0, minY = 0, maxX = 1200, maxY = 800;
         allNodes.forEach(node => {
           const el = document.getElementById(node.id);
           if (el) {
@@ -544,19 +552,16 @@
             const t = node._y;
             el.style.left = `${l}px`;
             el.style.top = `${t}px`;
-            minX = Math.min(minX, l - 200);
-            minY = Math.min(minY, t - 200);
-            maxX = Math.max(maxX, l + el.offsetWidth + 200);
-            maxY = Math.max(maxY, t + el.offsetHeight + 200);
           }
         });
 
-        // SVGレイヤーのサイズと位置を動的に更新して線が消えないようにする
-        svgLayer.style.left = `${minX}px`;
-        svgLayer.style.top = `${minY}px`;
-        svgLayer.style.width = `${maxX - minX}px`;
-        svgLayer.style.height = `${maxY - minY}px`;
-        svgLayer.setAttribute('viewBox', `${minX} ${minY} ${maxX - minX} ${maxY - minY}`);
+        // SVGレイヤーは(0,0)基準の1x1px + overflow:visibleに固定し、ズーム・パン時のクリッピングや座標ズレによる線の消失を防ぐ
+        svgLayer.style.left = '0px';
+        svgLayer.style.top = '0px';
+        svgLayer.style.width = '1px';
+        svgLayer.style.height = '1px';
+        svgLayer.style.overflow = 'visible';
+        svgLayer.removeAttribute('viewBox');
 
         const contrastColor = getContrastColorForBg(canvasBgColor);
         const isDarkBg = contrastColor === '#ffffff';
