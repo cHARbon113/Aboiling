@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>自動レイアウト フローチャート作成ツール</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -27,11 +27,7 @@
       background-size: 20px 20px;
       background-image: radial-gradient(circle, rgba(0,0,0,0.12) 1px, transparent 1px);
     }
-    .node-transition {
-      will-change: transform, left, top;
-    }
     .selected-node {
-      ring: 2px;
       outline: 2px solid #6366f1;
       outline-offset: 2px;
     }
@@ -45,10 +41,10 @@
     }
   </style>
 </head>
-<body class="bg-slate-100 text-slate-800 h-screen w-screen overflow-hidden flex flex-col select-none">
+<body class="bg-slate-100 text-slate-800 h-[100dvh] w-screen overflow-hidden flex flex-col select-none">
 
   <!-- Header / Toolbar Ribbon -->
-  <header class="bg-white border-b border-slate-200 px-3 md:px-6 py-2 flex flex-col gap-2 z-20 shadow-sm flex-shrink-0">
+  <header class="bg-white border-b border-slate-200 px-3 md:px-6 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 flex flex-col gap-2 z-20 shadow-sm flex-shrink-0">
     <!-- Top Row: App Info & Main Actions -->
     <div class="flex items-center justify-between gap-2 flex-wrap">
       <div class="flex items-center space-x-2">
@@ -56,10 +52,7 @@
           <i data-lucide="git-fork" class="w-4 h-4 md:w-5 md:h-5"></i>
         </div>
         <div>
-          <h1 class="font-bold text-sm md:text-base text-slate-800 leading-none">フローチャート</h1>
-          <span id="saveStatus" class="text-[10px] text-emerald-600 font-medium flex items-center gap-0.5 mt-0.5">
-            <i data-lucide="check" class="w-3 h-3"></i> 保存済み
-          </span>
+          <h1 class="font-bold text-sm md:text-base text-slate-800 leading-tight">フローチャート</h1>
         </div>
       </div>
 
@@ -146,16 +139,22 @@
       <!-- Branch Label Text (if parent branch edge exists) -->
       <div id="branchLabelBox" class="flex items-center gap-1.5 shrink-0 ml-auto hidden">
         <span class="text-[11px] text-slate-500 font-medium">分岐矢印テキスト:</span>
-        <input type="text" id="ribbonEdgeLabelInput" placeholder="例: はい / いいえ" class="px-2 py-0.5 text-xs rounded border border-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none w-28 bg-white">
+        <input type="text" id="ribbonEdgeLabelInput" placeholder="分岐名" class="px-2 py-0.5 text-xs rounded border border-slate-200 focus:ring-1 focus:ring-indigo-500 outline-none w-28 bg-white">
       </div>
     </div>
   </header>
 
   <!-- Main Work Area -->
   <main class="flex-1 relative overflow-hidden bg-slate-100 bg-grid cursor-grab active:cursor-grabbing" id="viewport">
-    <div id="scene" class="absolute left-0 top-0 origin-0">
+    <div id="scene" class="absolute left-0 top-0" style="transform-origin: 0 0; will-change: transform;">
       <!-- SVG Connectors Layer -->
-      <svg id="svgLayer" class="absolute left-0 top-0 pointer-events-none" style="overflow: visible;"></svg>
+      <svg id="svgLayer" class="absolute left-0 top-0 pointer-events-none" width="1" height="1" style="overflow: visible;">
+        <defs>
+          <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#1e293b" />
+          </marker>
+        </defs>
+      </svg>
 
       <!-- Connection Edge Labels Overlay Container -->
       <div id="edgeLabelsContainer" class="absolute left-0 top-0 pointer-events-auto"></div>
@@ -247,9 +246,9 @@
     let lastPinchDist = null;
     let lastPinchCenter = null;
 
+    // LAYOUT CONSTANTS
     const GAP_X = 24;
-    const GAP_Y = 60; // 縦幅を十分に確保してラベルとノードの重なりを防止
-    const STORAGE_KEY = 'flowchart_v3_data';
+    const GAP_Y = 56;
     const DEFAULT_NEW_TEXT = '';
 
     // --- CUSTOM CONFIRM DIALOG ---
@@ -277,6 +276,7 @@
       closeConfirmModal();
     };
 
+    // Check if a node or any descendant has been edited or contains sub-branches
     function isBranchEditedOrHasChildren(node, parentNode) {
       if (!node) return false;
       if (node.children && node.children.length > 0) return true;
@@ -289,52 +289,29 @@
       return false;
     }
 
-    // Auto-size textarea & hidden sizer so node width/height hugs text cleanly
+    // Auto-size textarea & hidden sizer so node width/height hugs text cleanly without unwanted wrapping
     function syncTextareaDimensions(textarea, sizer) {
       if (!textarea || !sizer) return;
       const val = textarea.value || textarea.placeholder || ' ';
-      // 複数行にも対応し、一番長い行の幅を正確に計測する
       const lines = val.split('\n');
-      let maxW = 0;
+      let maxLineW = 60;
       lines.forEach(line => {
         sizer.textContent = line || ' ';
-        const w = sizer.scrollWidth || sizer.getBoundingClientRect().width;
-        if (w > maxW) maxW = w;
+        const w = Math.ceil(sizer.getBoundingClientRect().width);
+        if (w > maxLineW) maxLineW = w;
       });
-      const measuredW = Math.max(90, Math.ceil(maxW) + 28);
-      textarea.style.width = `${measuredW}px`;
+      textarea.style.width = `${maxLineW + 16}px`;
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.max(22, textarea.scrollHeight)}px`;
+      textarea.style.height = `${Math.max(20, lines.length * 18)}px`;
     }
 
+    // Auto-size branch label input to fit its text so it never clips
     function syncEdgeInputWidth(inputEl, sizerEl) {
       if (!inputEl || !sizerEl) return;
       const val = inputEl.value || inputEl.placeholder || ' ';
       sizerEl.textContent = val;
-      const measuredW = Math.max(44, Math.ceil(sizerEl.scrollWidth || sizerEl.getBoundingClientRect().width) + 24);
+      const measuredW = Math.max(44, Math.ceil(sizerEl.scrollWidth || sizerEl.getBoundingClientRect().width) + 20);
       inputEl.style.width = `${measuredW}px`;
-    }
-
-    function saveToStorage() {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          tree: treeData,
-          canvasBg: canvasBgColor
-        }));
-      } catch (e) {}
-    }
-
-    function loadFromStorage() {
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          treeData = parsed.tree || parsed;
-          canvasBgColor = parsed.canvasBg || '#f1f5f9';
-          return true;
-        }
-      } catch (e) {}
-      return false;
     }
 
     function showToast(msg) {
@@ -347,8 +324,8 @@
     // --- TREE MEASUREMENT & CENTERING LAYOUT ---
     function measureSubtrees(node) {
       const nodeEl = document.getElementById(node.id);
-      node._width = nodeEl ? Math.max(90, nodeEl.offsetWidth) : 120;
-      node._height = nodeEl ? nodeEl.offsetHeight : 44;
+      node._width = nodeEl ? Math.max(84, nodeEl.offsetWidth) : 120;
+      node._height = nodeEl ? Math.max(36, nodeEl.offsetHeight) : 40;
 
       if (!node.children || node.children.length === 0) {
         node._subtreeWidth = node._width;
@@ -390,23 +367,28 @@
         startX += w + GAP_X;
       });
 
-      // 親項目は奇数個なら中心の選択肢の上、偶数個なら中心2つの選択肢の間
-      if (n > 0) {
-        if (n % 2 === 1) {
-          const midChild = children[Math.floor(n / 2)];
-          node._x = midChild._x;
-        } else {
-          const leftChild = children[(n / 2) - 1];
-          const rightChild = children[n / 2];
-          node._x = (leftChild._x + rightChild._x) / 2;
-        }
+      // 親項目の位置調整:
+      // 奇数個なら中心の選択肢の真上、偶数個なら中心2つの選択肢の中央に合わせる
+      if (n % 2 === 1) {
+        const midChild = children[Math.floor(n / 2)];
+        node._x = midChild._x;
+      } else {
+        const leftChild = children[(n / 2) - 1];
+        const rightChild = children[n / 2];
+        node._x = (leftChild._x + rightChild._x) / 2;
       }
     }
 
+    function shiftTreeX(node, deltaX) {
+      node._x += deltaX;
+      if (node.children) {
+        node.children.forEach(c => shiftTreeX(c, deltaX));
+      }
+    }
+
+    // --- RENDER ENGINE ---
     function render(skipActiveInputSync = false) {
       const container = document.getElementById('nodesContainer');
-      const edgeLabelsContainer = document.getElementById('edgeLabelsContainer');
-      const svgLayer = document.getElementById('svgLayer');
 
       document.getElementById('viewport').style.backgroundColor = canvasBgColor;
       document.getElementById('canvasBgPicker').value = canvasBgColor;
@@ -432,18 +414,18 @@
         if (!el) {
           el = document.createElement('div');
           el.id = node.id;
-          el.className = 'flow-node absolute node-transition rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center cursor-pointer group min-w-[90px] w-max';
+          el.className = 'flow-node absolute rounded-lg shadow-sm border border-slate-300 flex flex-col justify-center cursor-pointer group min-w-[84px] w-max';
           el.innerHTML = `
-            <div class="node-image-wrap w-full bg-black/5 flex items-center justify-center p-1 border-b border-black/5 hidden rounded-t-lg overflow-hidden">
-              <img class="node-image max-w-full max-h-24 object-contain rounded" alt="ノード画像">
+            <div class="node-image-wrap w-full bg-black/5 flex items-center justify-center p-1 border-b border-black/5 rounded-t-lg hidden">
+              <img class="node-image max-w-[200px] max-h-24 object-contain rounded" alt="ノード画像">
             </div>
-            <div class="px-3.5 py-2 relative flex items-center justify-center">
-              <span class="node-sizer invisible fixed left-0 top-0 pointer-events-none whitespace-pre text-xs font-bold leading-normal" aria-hidden="true"></span>
+            <div class="px-3 py-1.5 relative flex items-center justify-center">
+              <span class="node-sizer invisible fixed pointer-events-none whitespace-pre text-xs font-bold leading-[18px]" aria-hidden="true"></span>
               <textarea
                 rows="1"
                 wrap="off"
-                placeholder="テキストを入力"
-                class="node-input node-text bg-transparent border-0 resize-none overflow-hidden text-xs font-bold leading-normal outline-none text-center p-0 m-0 focus:ring-0 placeholder:opacity-40 whitespace-pre"
+                placeholder="文字を入力"
+                class="node-input node-text bg-transparent border-0 resize-none overflow-hidden whitespace-pre text-xs font-bold leading-[18px] outline-none text-center p-0 m-0 focus:ring-0 placeholder:opacity-50"
               ></textarea>
             </div>
           `;
@@ -474,12 +456,10 @@
               currentNode.text = e.target.value;
               syncTextareaDimensions(textEl, sizerEl);
               relayoutOnly();
-              saveToStorage();
             }
           });
 
           textEl.addEventListener('blur', () => {
-            saveToStorage();
             relayoutOnly();
           });
         }
@@ -523,13 +503,137 @@
       relayoutOnly(connections, allNodes);
       lucide.createIcons();
       updateRibbonState();
-      saveToStorage();
     }
 
-    function relayoutOnly(precollectedConnections = null, precollectedNodes = null) {
+    function applyLayoutPass(connections, allNodes) {
       const edgeLabelsContainer = document.getElementById('edgeLabelsContainer');
       const svgLayer = document.getElementById('svgLayer');
 
+      measureSubtrees(treeData);
+      positionNodes(treeData, 0, 40);
+
+      // 最上位（ルート）ノードが常に X = 0 の中心に来るよう全体を平行移動
+      if (treeData._x !== 0) {
+        shiftTreeX(treeData, -treeData._x);
+      }
+
+      allNodes.forEach(node => {
+        const el = document.getElementById(node.id);
+        if (el) {
+          el.style.left = `${Math.round(node._x - el.offsetWidth / 2)}px`;
+          el.style.top = `${Math.round(node._y)}px`;
+        }
+      });
+
+      const contrastColor = getContrastColorForBg(canvasBgColor);
+      const isDarkBg = contrastColor === '#ffffff';
+      svgLayer.innerHTML = `
+        <defs>
+          <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="${contrastColor}" />
+          </marker>
+        </defs>
+      `;
+
+      const existingEdgeInputs = new Map();
+      edgeLabelsContainer.querySelectorAll('.edge-label-wrap').forEach(w => {
+        existingEdgeInputs.set(w.dataset.childId, w);
+      });
+      const activeEdgeChildIds = new Set();
+
+      connections.forEach(({ parent, child }) => {
+        const pEl = document.getElementById(parent.id);
+        const cEl = document.getElementById(child.id);
+        if (!pEl || !cEl) return;
+
+        const x1 = Math.round(parent._x);
+        const y1 = Math.round(parent._y + pEl.offsetHeight);
+        const x2 = Math.round(child._x);
+        const y2 = Math.round(child._y);
+
+        const midY = y1 + 14;
+        const pathD = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', pathD);
+        path.setAttribute('stroke', contrastColor);
+        path.setAttribute('stroke-width', '1.5');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('marker-end', 'url(#arrowhead)');
+        svgLayer.appendChild(path);
+
+        // 1本以上の分岐がある場合、各選択肢の真上の縦矢印にラベルを配置
+        if (parent.children && parent.children.length >= 1) {
+          activeEdgeChildIds.add(child.id);
+          let labelWrapper = existingEdgeInputs.get(child.id);
+          if (!labelWrapper) {
+            labelWrapper = document.createElement('div');
+            labelWrapper.dataset.childId = child.id;
+            labelWrapper.className = 'edge-label-wrap absolute z-10 flex items-center justify-center whitespace-nowrap w-max';
+
+            const labelSizer = document.createElement('span');
+            labelSizer.className = 'edge-label-sizer invisible absolute pointer-events-none whitespace-pre text-[10px] font-bold px-1';
+            labelSizer.setAttribute('aria-hidden', 'true');
+
+            const labelInput = document.createElement('input');
+            labelInput.type = 'text';
+            labelInput.placeholder = '分岐名';
+            labelInput.className = 'node-input text-[10px] border-0 outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1 py-0.5 font-bold min-w-[44px] max-w-none shrink-0 text-center';
+
+            labelInput.addEventListener('focus', () => {
+              if (selectedNodeId !== child.id) {
+                selectedNodeId = child.id;
+                document.querySelectorAll('.flow-node').forEach(n => n.classList.remove('selected-node', 'shadow-md'));
+                const targetNodeEl = document.getElementById(child.id);
+                if (targetNodeEl) targetNodeEl.classList.add('selected-node', 'shadow-md');
+                updateRibbonState();
+              }
+            });
+
+            labelInput.addEventListener('input', (e) => {
+              const targetChild = findNode(treeData, child.id);
+              if (targetChild) {
+                targetChild.edgeLabel = e.target.value;
+                syncEdgeInputWidth(labelInput, labelSizer);
+                const ribbonEdge = document.getElementById('ribbonEdgeLabelInput');
+                if (selectedNodeId === child.id && document.activeElement !== ribbonEdge) {
+                  ribbonEdge.value = e.target.value;
+                }
+              }
+            });
+
+            labelWrapper.appendChild(labelSizer);
+            labelWrapper.appendChild(labelInput);
+            edgeLabelsContainer.appendChild(labelWrapper);
+          }
+
+          const inputEl = labelWrapper.querySelector('input');
+          const sizerEl = labelWrapper.querySelector('.edge-label-sizer');
+          const labelBg = hexToRgba(canvasBgColor, 0.92);
+          inputEl.style.color = contrastColor;
+          inputEl.style.backgroundColor = labelBg;
+          inputEl.classList.toggle('focus:bg-slate-800/95', isDarkBg);
+          inputEl.classList.toggle('focus:bg-white/95', !isDarkBg);
+          inputEl.classList.toggle('placeholder:text-slate-300', isDarkBg);
+          inputEl.classList.toggle('placeholder:text-slate-500', !isDarkBg);
+          if (document.activeElement !== inputEl) {
+            inputEl.value = child.edgeLabel || '';
+          }
+          syncEdgeInputWidth(inputEl, sizerEl);
+
+          const verticalMidY = midY + (y2 - midY - 4) / 2;
+          labelWrapper.style.left = `${x2}px`;
+          labelWrapper.style.top = `${Math.round(verticalMidY)}px`;
+          labelWrapper.style.transform = 'translate(-50%, -50%)';
+        }
+      });
+
+      existingEdgeInputs.forEach((el, childId) => {
+        if (!activeEdgeChildIds.has(childId)) el.remove();
+      });
+    }
+
+    function relayoutOnly(precollectedConnections = null, precollectedNodes = null) {
       const allNodes = precollectedNodes || [];
       const connections = precollectedConnections || [];
       if (!precollectedNodes) {
@@ -541,138 +645,11 @@
         collect(treeData, null);
       }
 
-      requestAnimationFrame(() => {
-        measureSubtrees(treeData);
-        positionNodes(treeData, 0, 60);
-
-        allNodes.forEach(node => {
-          const el = document.getElementById(node.id);
-          if (el) {
-            const l = node._x - el.offsetWidth / 2;
-            const t = node._y;
-            el.style.left = `${l}px`;
-            el.style.top = `${t}px`;
-          }
-        });
-
-        // SVGレイヤーは(0,0)基準の1x1px + overflow:visibleに固定し、ズーム・パン時のクリッピングや座標ズレによる線の消失を防ぐ
-        svgLayer.style.left = '0px';
-        svgLayer.style.top = '0px';
-        svgLayer.style.width = '1px';
-        svgLayer.style.height = '1px';
-        svgLayer.style.overflow = 'visible';
-        svgLayer.removeAttribute('viewBox');
-
-        const contrastColor = getContrastColorForBg(canvasBgColor);
-        const isDarkBg = contrastColor === '#ffffff';
-        svgLayer.innerHTML = `
-          <defs>
-            <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="${contrastColor}" />
-            </marker>
-          </defs>
-        `;
-
-        const existingEdgeInputs = new Map();
-        edgeLabelsContainer.querySelectorAll('.edge-label-wrap').forEach(w => {
-          existingEdgeInputs.set(w.dataset.childId, w);
-        });
-        const activeEdgeChildIds = new Set();
-
-        connections.forEach(({ parent, child }) => {
-          const pEl = document.getElementById(parent.id);
-          const cEl = document.getElementById(child.id);
-          if (!pEl || !cEl) return;
-
-          const x1 = parent._x;
-          const y1 = parent._y + pEl.offsetHeight;
-          const x2 = child._x;
-          const y2 = child._y;
-
-          const midY = y1 + 16;
-          const pathD = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
-
-          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          path.setAttribute('d', pathD);
-          path.setAttribute('stroke', contrastColor);
-          path.setAttribute('stroke-width', '1.5');
-          path.setAttribute('fill', 'none');
-          path.setAttribute('marker-end', 'url(#arrowhead)');
-          svgLayer.appendChild(path);
-
-          // 分岐が1つ以上ある場合（ルート以外のすべての接続線）に、各選択肢の真上にある縦矢印の中央にラベルを表示
-          if (parent.children && parent.children.length >= 1) {
-            activeEdgeChildIds.add(child.id);
-            let labelWrapper = existingEdgeInputs.get(child.id);
-            if (!labelWrapper) {
-              labelWrapper = document.createElement('div');
-              labelWrapper.dataset.childId = child.id;
-              labelWrapper.className = 'edge-label-wrap absolute z-10 flex items-center justify-center whitespace-nowrap w-max';
-
-              const labelSizer = document.createElement('span');
-              labelSizer.className = 'edge-label-sizer invisible absolute pointer-events-none whitespace-pre text-[10px] font-bold px-1.5';
-              labelSizer.setAttribute('aria-hidden', 'true');
-
-              const labelInput = document.createElement('input');
-              labelInput.type = 'text';
-              labelInput.placeholder = '分岐名';
-              labelInput.className = 'node-input text-[10px] border-0 outline-none focus:ring-1 focus:ring-indigo-400 rounded px-1.5 py-0.5 font-bold min-w-[44px] max-w-none shrink-0 text-center';
-
-              labelInput.addEventListener('focus', () => {
-                if (selectedNodeId !== child.id) {
-                  selectedNodeId = child.id;
-                  document.querySelectorAll('.flow-node').forEach(n => n.classList.remove('selected-node', 'shadow-md'));
-                  const targetNodeEl = document.getElementById(child.id);
-                  if (targetNodeEl) targetNodeEl.classList.add('selected-node', 'shadow-md');
-                  updateRibbonState();
-                }
-              });
-
-              labelInput.addEventListener('input', (e) => {
-                const targetChild = findNode(treeData, child.id);
-                if (targetChild) {
-                  targetChild.edgeLabel = e.target.value;
-                  syncEdgeInputWidth(labelInput, labelSizer);
-                  const ribbonEdge = document.getElementById('ribbonEdgeLabelInput');
-                  if (selectedNodeId === child.id && document.activeElement !== ribbonEdge) {
-                    ribbonEdge.value = e.target.value;
-                  }
-                  saveToStorage();
-                }
-              });
-
-              labelWrapper.appendChild(labelSizer);
-              labelWrapper.appendChild(labelInput);
-              edgeLabelsContainer.appendChild(labelWrapper);
-            }
-
-            const inputEl = labelWrapper.querySelector('input');
-            const sizerEl = labelWrapper.querySelector('.edge-label-sizer');
-            const labelBg = hexToRgba(canvasBgColor, 0.92);
-            inputEl.style.color = contrastColor;
-            inputEl.style.backgroundColor = labelBg;
-            inputEl.classList.toggle('focus:bg-slate-800/95', isDarkBg);
-            inputEl.classList.toggle('focus:bg-white/95', !isDarkBg);
-            inputEl.classList.toggle('placeholder:text-slate-300', isDarkBg);
-            inputEl.classList.toggle('placeholder:text-slate-500', !isDarkBg);
-            if (document.activeElement !== inputEl) {
-              inputEl.value = child.edgeLabel || '';
-            }
-            syncEdgeInputWidth(inputEl, sizerEl);
-
-            const verticalMidY = midY + (y2 - midY - 6) / 2;
-            labelWrapper.style.left = `${x2}px`;
-            labelWrapper.style.top = `${verticalMidY}px`;
-            labelWrapper.style.transform = 'translate(-50%, -50%)';
-          }
-        });
-
-        existingEdgeInputs.forEach((el, childId) => {
-          if (!activeEdgeChildIds.has(childId)) el.remove();
-        });
-      });
+      applyLayoutPass(connections, allNodes);
+      requestAnimationFrame(() => applyLayoutPass(connections, allNodes));
     }
 
+    // --- NODE SELECTION & RIBBON STATE CONTROL ---
     function selectNode(id) {
       selectedNodeId = id;
       render();
@@ -740,6 +717,7 @@
       }
     }
 
+    // Ribbon Action Handlers
     document.getElementById('btnRibbonAddChild').onclick = () => {
       if (!selectedNodeId) return;
       const parent = findNode(treeData, selectedNodeId);
@@ -876,7 +854,6 @@
       if (node) {
         node.edgeLabel = e.target.value;
         relayoutOnly();
-        saveToStorage();
       }
     };
 
@@ -894,10 +871,6 @@
         render();
       }
     };
-
-    function escapeHtml(str) {
-      return (str || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-    }
 
     function findNode(node, id) {
       if (node.id === id) return node;
@@ -937,18 +910,19 @@
       return 'node-' + Math.random().toString(36).substr(2, 9);
     }
 
+    // --- VIEWPORT PAN & ZOOM ---
     const viewport = document.getElementById('viewport');
     const scene = document.getElementById('scene');
 
     function updateTransform() {
-      scene.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+      scene.style.transform = `translate3d(${Math.round(panX)}px, ${Math.round(panY)}px, 0) scale(${zoomLevel})`;
       document.getElementById('zoomLevel').textContent = `${Math.round(zoomLevel * 100)}%`;
     }
 
     function centerView() {
       const rect = viewport.getBoundingClientRect();
       panX = rect.width / 2;
-      panY = 60;
+      panY = 40;
       zoomLevel = 1.0;
       updateTransform();
     }
@@ -1073,15 +1047,16 @@
       );
     };
 
-    document.getElementById('btnDownloadPng').onclick = () => {
-      showToast('画像を保存中...');
-      const nodeElements = document.querySelectorAll('#nodesContainer > .flow-node');
+    // Direct HTML5 Canvas PNG Download Engine (Works reliably on iPhone Safari & Desktop)
+    document.getElementById('btnDownloadPng').onclick = async () => {
+      showToast('画像を生成中...');
+      const nodeElements = Array.from(document.querySelectorAll('#nodesContainer > .flow-node'));
       if (nodeElements.length === 0) return;
 
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       nodeElements.forEach(el => {
-        const x = parseFloat(el.style.left);
-        const y = parseFloat(el.style.top);
+        const x = parseFloat(el.style.left) || 0;
+        const y = parseFloat(el.style.top) || 0;
         minX = Math.min(minX, x);
         minY = Math.min(minY, y);
         maxX = Math.max(maxX, x + el.offsetWidth);
@@ -1090,106 +1065,188 @@
 
       const pad = 40;
       minX -= pad; minY -= pad; maxX += pad; maxY += pad;
-      const w = maxX - minX;
-      const h = maxY - minY;
+      const w = Math.ceil(maxX - minX);
+      const h = Math.ceil(maxY - minY);
 
-      let nodesHtml = '';
-      nodeElements.forEach(el => {
-        const left = parseFloat(el.style.left) - minX;
-        const top = parseFloat(el.style.top) - minY;
-        const origTa = el.querySelector('textarea');
-        const origImg = el.querySelector('.node-image');
-        const bgColor = el.style.backgroundColor || '#ffffff';
-        const textColor = el.style.color || '#1e293b';
-        const width = el.offsetWidth;
-        const height = el.offsetHeight;
+      const scale = 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = w * scale;
+      canvas.height = h * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
 
-        let imgSection = '';
-        if (origImg && origImg.src && !el.querySelector('.node-image-wrap').classList.contains('hidden')) {
-          imgSection = `<div style="width:100%; background:rgba(0,0,0,0.05); display:flex; align-items:center; justify-content:center; padding:4px; border-bottom:1px solid rgba(0,0,0,0.05); box-sizing:border-box;"><img src="${origImg.src}" style="max-width:100%; max-height:96px; object-fit:contain; border-radius:4px;"/></div>`;
-        }
+      // 1. 背景塗りつぶし
+      ctx.fillStyle = canvasBgColor;
+      ctx.fillRect(0, 0, w, h);
 
-        const textVal = origTa ? origTa.value : '';
-        nodesHtml += `
-          <div style="position:absolute; left:${left}px; top:${top}px; width:${width}px; min-height:${height}px; background-color:${bgColor}; color:${textColor}; border:1px solid #cbd5e1; border-radius:8px; box-shadow:0 1px 2px rgba(0,0,0,0.05); display:flex; flex-direction:column; justify-content:center; box-sizing:border-box; font-family:Inter, -apple-system, BlinkMacSystemFont, sans-serif;">
-            ${imgSection}
-            <div style="padding:8px 14px; display:flex; align-items:center; justify-content:center; box-sizing:border-box;">
-              <div style="font-size:12px; font-weight:700; line-height:1.5; text-align:center; white-space:pre; color:${textColor};">${escapeHtml(textVal)}</div>
-            </div>
-          </div>
-        `;
-      });
-
-      const svgPaths = document.getElementById('svgLayer').querySelectorAll('path');
+      // 2. 接続線・矢印を描画
       const contrastColor = getContrastColorForBg(canvasBgColor);
-      let pathsSvg = '';
-      svgPaths.forEach(p => {
-        const d = p.getAttribute('d').replace(/([M L])\s*(-?\d+\.?\d*)\s*(-?\d+\.?\d*)/g, (_, cmd, x, y) => {
-          return `${cmd} ${parseFloat(x) - minX} ${parseFloat(y) - minY}`;
-        });
-        pathsSvg += `<path d="${d}" stroke="${contrastColor}" stroke-width="1.5" fill="none" marker-end="url(#arrowhead)"/>`;
-      });
+      ctx.strokeStyle = contrastColor;
+      ctx.fillStyle = contrastColor;
+      ctx.lineWidth = 1.5;
 
-      let edgeLabelsHtml = '';
+      function drawConnectionsToCanvas(node) {
+        if (!node.children || node.children.length === 0) return;
+        const pEl = document.getElementById(node.id);
+        if (!pEl) return;
+
+        const x1 = Math.round(node._x) - minX;
+        const y1 = Math.round(node._y + pEl.offsetHeight) - minY;
+        const midY = y1 + 14;
+
+        node.children.forEach(child => {
+          const cEl = document.getElementById(child.id);
+          if (!cEl) return;
+          const x2 = Math.round(child._x) - minX;
+          const y2 = Math.round(child._y) - minY;
+
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x1, midY);
+          ctx.lineTo(x2, midY);
+          ctx.lineTo(x2, y2 - 2);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - 4, y2 - 7);
+          ctx.lineTo(x2 + 4, y2 - 7);
+          ctx.closePath();
+          ctx.fill();
+
+          drawConnectionsToCanvas(child);
+        });
+      }
+      drawConnectionsToCanvas(treeData);
+
+      // 3. 分岐ラベルを描画
       const labelBgRgba = hexToRgba(canvasBgColor, 0.92);
+      ctx.font = '700 10px Inter, -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
       document.querySelectorAll('#edgeLabelsContainer > .edge-label-wrap').forEach(wrap => {
         const inp = wrap.querySelector('input');
         if (!inp || !inp.value.trim()) return;
-        const left = parseFloat(wrap.style.left) - minX;
-        const top = parseFloat(wrap.style.top) - minY;
-        edgeLabelsHtml += `<div style="position:absolute; left:${left}px; top:${top}px; transform:translate(-50%, -50%); padding:2px 6px; border-radius:4px; background-color:${labelBgRgba}; text-align:center; font-size:10px; font-weight:700; color:${contrastColor}; white-space:nowrap; font-family:Inter, -apple-system, BlinkMacSystemFont, sans-serif;">${escapeHtml(inp.value)}</div>`;
+        const text = inp.value;
+        const cx = parseFloat(wrap.style.left) - minX;
+        const cy = parseFloat(wrap.style.top) - minY;
+        const metrics = ctx.measureText(text);
+        const boxW = metrics.width + 12;
+        const boxH = 18;
+
+        ctx.fillStyle = labelBgRgba;
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(cx - boxW / 2, cy - boxH / 2, boxW, boxH, 4);
+        } else {
+          ctx.rect(cx - boxW / 2, cy - boxH / 2, boxW, boxH);
+        }
+        ctx.fill();
+
+        ctx.fillStyle = contrastColor;
+        ctx.fillText(text, cx, cy);
       });
 
-      const svgStr = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-          <defs>
-            <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-              <path d="M 0 1 L 10 5 L 0 9 z" fill="${contrastColor}" />
-            </marker>
-          </defs>
-          <rect width="100%" height="100%" fill="${canvasBgColor}"/>
-          <g>${pathsSvg}</g>
-          <foreignObject width="${w}" height="${h}">
-            <div xmlns="http://www.w3.org/1999/xhtml" style="position:relative; width:${w}px; height:${h}px;">
-              ${nodesHtml}
-              ${edgeLabelsHtml}
-            </div>
-          </foreignObject>
-        </svg>
-      `;
+      // 4. ノード本体（角丸ボックス・画像・テキスト）を描画
+      for (const el of nodeElements) {
+        const nodeObj = findNode(treeData, el.id);
+        if (!nodeObj) continue;
 
-      const img = new Image();
-      const svgBase64 = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+        const left = parseFloat(el.style.left) - minX;
+        const top = parseFloat(el.style.top) - minY;
+        const boxW = el.offsetWidth;
+        const boxH = el.offsetHeight;
+        const bgColor = nodeObj.bgColor || '#ffffff';
+        const textColor = nodeObj.textColor || '#1e293b';
 
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = w * 2;
-          canvas.height = h * 2;
-          const ctx = canvas.getContext('2d');
-          ctx.scale(2, 2);
-          ctx.drawImage(img, 0, 0);
+        ctx.fillStyle = bgColor;
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(left, top, boxW, boxH, 8);
+        } else {
+          ctx.rect(left, top, boxW, boxH);
+        }
+        ctx.fill();
+        ctx.stroke();
 
+        let textAreaTop = top;
+        let textAreaHeight = boxH;
+
+        if (nodeObj.image) {
+          const imgWrap = el.querySelector('.node-image-wrap');
+          const imgEl = el.querySelector('.node-image');
+          if (imgWrap && imgEl && !imgWrap.classList.contains('hidden')) {
+            const wrapH = imgWrap.offsetHeight;
+            textAreaTop += wrapH;
+            textAreaHeight -= wrapH;
+
+            await new Promise((resolve) => {
+              const tempImg = new Image();
+              tempImg.onload = () => {
+                const availW = boxW - 8;
+                const availH = wrapH - 8;
+                const ratio = Math.min(availW / tempImg.width, availH / tempImg.height, 1);
+                const drawW = tempImg.width * ratio;
+                const drawH = tempImg.height * ratio;
+                const drawX = left + (boxW - drawW) / 2;
+                const drawY = top + (wrapH - drawH) / 2;
+                ctx.drawImage(tempImg, drawX, drawY, drawW, drawH);
+                resolve();
+              };
+              tempImg.onerror = () => resolve();
+              tempImg.src = nodeObj.image;
+            });
+          }
+        }
+
+        const textVal = nodeObj.text || '';
+        if (textVal) {
+          ctx.fillStyle = textColor;
+          ctx.font = '700 12px Inter, -apple-system, BlinkMacSystemFont, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+
+          const lines = textVal.split('\n');
+          const lineHeight = 18;
+          const totalTextH = lines.length * lineHeight;
+          const startY = textAreaTop + (textAreaHeight - totalTextH) / 2 + lineHeight / 2;
+
+          lines.forEach((line, idx) => {
+            ctx.fillText(line, left + boxW / 2, startY + idx * lineHeight);
+          });
+        }
+      }
+
+      // 5. PNGとしてダウンロード実行
+      try {
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            showToast('PNGの生成に失敗しました');
+            return;
+          }
+          const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.download = `flowchart_${Date.now()}.png`;
-          a.href = canvas.toDataURL('image/png');
+          a.href = url;
+          document.body.appendChild(a);
           a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
           showToast('PNGをダウンロードしました');
-        } catch (err) {
-          console.error(err);
-          showToast('PNGの書き出しに失敗しました');
-        }
-      };
-      img.src = svgBase64;
+        }, 'image/png');
+      } catch (err) {
+        console.error(err);
+        showToast('PNGの書き出しに失敗しました');
+      }
     };
 
     window.onload = () => {
-      if (!loadFromStorage()) {
-        treeData = JSON.parse(JSON.stringify(defaultData));
-      }
+      treeData = JSON.parse(JSON.stringify(defaultData));
       render();
       centerView();
-      // ロード完了後に一度強制再描画・レイアウト計算を行って初期配置崩れを防ぐ
       setTimeout(() => render(), 50);
     };
   </script>
