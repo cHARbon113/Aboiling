@@ -275,9 +275,9 @@
     const GAP_X = 24;
     const GAP_Y = 56;
     const DEFAULT_NEW_TEXT = '';
-    const SESSION_STATE_PREFIX = 'FLOWCHART_STATE_V4:';
+    const STORAGE_KEY = 'FLOWCHART_STORAGE_V5';
 
-    // --- SESSION PERSISTENCE (Without localStorage) ---
+    // --- SESSION & LOCAL STORAGE PERSISTENCE ---
     function saveWorkState() {
       try {
         const payload = JSON.stringify({
@@ -285,14 +285,22 @@
           canvasBg: canvasBgColor,
           selectedId: selectedNodeId
         });
-        window.name = SESSION_STATE_PREFIX + payload;
-      } catch (e) {}
+        localStorage.setItem(STORAGE_KEY, payload);
+      } catch (e) {
+        try {
+          window.name = 'FLOWCHART_FALLBACK:' + JSON.stringify({
+            tree: treeData,
+            canvasBg: canvasBgColor,
+            selectedId: selectedNodeId
+          });
+        } catch (err) {}
+      }
     }
 
     function loadWorkState() {
       try {
-        if (typeof window.name === 'string' && window.name.startsWith(SESSION_STATE_PREFIX)) {
-          const raw = window.name.slice(SESSION_STATE_PREFIX.length);
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
           const parsed = JSON.parse(raw);
           if (parsed && parsed.tree) {
             treeData = parsed.tree;
@@ -302,6 +310,20 @@
           }
         }
       } catch (e) {}
+
+      try {
+        if (typeof window.name === 'string' && window.name.startsWith('FLOWCHART_FALLBACK:')) {
+          const raw = window.name.slice('FLOWCHART_FALLBACK:'.length);
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.tree) {
+            treeData = parsed.tree;
+            canvasBgColor = parsed.canvasBg || '#f1f5f9';
+            selectedNodeId = parsed.selectedId || treeData.id;
+            return true;
+          }
+        }
+      } catch (e) {}
+
       return false;
     }
 
@@ -1110,7 +1132,10 @@
           treeData = JSON.parse(JSON.stringify(defaultData));
           canvasBgColor = '#f1f5f9';
           selectedNodeId = treeData.id;
-          window.name = '';
+          try {
+            localStorage.removeItem(STORAGE_KEY);
+            window.name = '';
+          } catch (e) {}
           render();
           centerView();
           showToast('リセットしました');
